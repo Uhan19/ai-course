@@ -6,7 +6,7 @@ const EXTRA_PATH = "/usr/local/bin:/opt/homebrew/bin";
 const STATUS_MARK = "__PRIMER_HTTP_STATUS__";
 const ALLOWED_ENDPOINTS = { "/api/chat": "POST", "/api/tags": "GET", "/api/version": "GET" };
 const LOCAL_HOSTS = new Set(["127.0.0.1:11434", "localhost:11434"]);
-export const MODEL_DOWNLOAD_SIZES = { "qwen3.5:9b": "about 7.6 GB" };
+export const MODEL_DOWNLOAD_SIZES = { "qwen3.5:9b": "about 7.6 GB", "qwen3.5:4b": "about 4.0 GB" };
 export const FALLBACK_MODEL_LABEL = "claude (fallback through your Claude account)";
 
 export function ollamaEndpoint(url, method = "GET") {
@@ -58,7 +58,7 @@ export async function ollamaRequest(desktop, { path, method, body = "" }, timeou
 }
 
 export async function probeLocal(desktop, model) {
-  const probe = { ollama: { running: false, installed: false, version: "" }, model: { name: model, pulled: false } };
+  const probe = { ollama: { running: false, installed: false, version: "" }, model: { name: model, pulled: false }, models: [] };
   try {
     const version = await ollamaRequest(desktop, { path: "/api/version", method: "GET" }, PROBE_TIMEOUT_S);
     probe.ollama.running = version.status === 200;
@@ -69,8 +69,9 @@ export async function probeLocal(desktop, model) {
   }
   if (probe.ollama.running) {
     try {
-      const tags = await ollamaRequest(desktop, { path: "/api/tags", method: "GET" }, PROBE_TIMEOUT_S);
-      probe.model.pulled = hasModel(JSON.parse(tags.body), model);
+      const tags = JSON.parse((await ollamaRequest(desktop, { path: "/api/tags", method: "GET" }, PROBE_TIMEOUT_S)).body);
+      probe.model.pulled = hasModel(tags, model);
+      probe.models = pulledModels(tags);
     } catch {
       probe.model.pulled = false;
     }
@@ -85,10 +86,22 @@ function withTag(name) {
   return String(name).split("/").pop().includes(":") ? String(name) : `${name}:latest`;
 }
 
-export function hasModel(tags, model) {
-  const wanted = withTag(model);
+export function pulledModels(tags) {
   const listed = (Array.isArray(tags?.models) ? tags.models : []).flatMap((entry) => [entry?.name, entry?.model]).filter(Boolean);
-  return listed.some((name) => withTag(name) === wanted);
+  return [...new Set(listed.map(withTag))];
+}
+
+export function hasModel(tags, model) {
+  return pulledModels(tags).includes(withTag(model));
+}
+
+export function isPulled(probe, model) {
+  return (probe?.models ?? []).includes(withTag(model));
+}
+
+export function pullStep(model) {
+  const size = MODEL_DOWNLOAD_SIZES[model];
+  return { problem: `The model ${model} isn't downloaded yet${size ? ` (${size})` : ""}.`, command: `ollama pull ${model}` };
 }
 
 export function localReady(probe) {
@@ -112,12 +125,7 @@ export function setupSteps(probe, platform = "darwin") {
       hint: mac ? "Or open the Ollama app." : undefined,
     });
   }
-  if (!probe.model.pulled) {
-    steps.push({
-      problem: `The model ${probe.model.name} isn't downloaded yet${MODEL_DOWNLOAD_SIZES[probe.model.name] ? ` (${MODEL_DOWNLOAD_SIZES[probe.model.name]})` : ""}.`,
-      command: `ollama pull ${probe.model.name}`,
-    });
-  }
+  if (!probe.model.pulled) steps.push(pullStep(probe.model.name));
   return steps;
 }
 
@@ -131,6 +139,12 @@ export function decideSource({ preference = "auto", localIsReady = false, claude
 export function readConfigValue(source, name) {
   const match = String(source ?? "").match(new RegExp(`export\\s+const\\s+${name}\\s*=\\s*["'\`]([^"'\`]+)["'\`]`));
   return match ? match[1] : null;
+}
+
+export function readConfigList(source, name) {
+  const match = String(source ?? "").match(new RegExp(`export\\s+const\\s+${name}\\s*(?::[^=]*)?=\\s*\\[([^\\]]*)\\]`));
+  if (!match) return null;
+  return [...match[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((item) => item[1]);
 }
 
 const JSON_PROTOCOL = `Reply with only one JSON object and nothing else:

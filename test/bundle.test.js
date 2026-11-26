@@ -102,6 +102,74 @@ describe("running the harness files in a worker", () => {
     assert.equal((await worker.next("error")).message, "fetch failed: could not reach Ollama");
   });
 
+  it("asks the page to run sandbox commands, and you to approve, for lesson 5", async () => {
+    const worker = startWorker(buildWorkerSource(transpileFiles(ts, files), "harness/05-agent.ts"));
+    await worker.next("ready");
+    worker.deliver({ type: "send", turn: 1, text: "Run hello.py" });
+
+    const prepare = await worker.next("page");
+    assert.deepEqual([prepare.op, prepare.args], ["prepareSandbox", []]);
+    worker.deliver({ type: "page-reply", id: prepare.id, value: null });
+
+    const first = await worker.next("fetch");
+    assert.equal(JSON.parse(first.body).tools.length, 4);
+    worker.deliver({
+      type: "fetch-reply",
+      id: first.id,
+      status: 200,
+      body: reply({ role: "assistant", content: "", tool_calls: [{ id: "c1", function: { name: "run_command", arguments: { command: "python3 hello.py" } } }] }),
+    });
+
+    const ask = await worker.next("ask");
+    assert.deepEqual(ask.request, { tool: "run_command", arguments: { command: "python3 hello.py" }, action: "run: python3 hello.py", rule: "A command can change anything in the workspace." });
+    worker.deliver({ type: "answer", id: ask.id, approved: true });
+
+    const run = await worker.next("page");
+    assert.equal(run.op, "runInSandbox");
+    assert.deepEqual(run.args, [{ command: ["sh", "-c", "python3 hello.py"], stdin: undefined, timeoutMs: 10_000, maxOutputChars: 8_000 }]);
+    worker.deliver({
+      type: "page-reply",
+      id: run.id,
+      value: { argv: ["docker", "run"], stdout: "Hello\n", stderr: "", exitCode: 0, timedOut: false, elapsedMs: 12.345 },
+    });
+
+    const second = await worker.next("fetch");
+    assert.equal(JSON.parse(second.body).messages.at(-1).content, "Exit code: 0\nOutput:\nHello\n");
+    worker.deliver({ type: "fetch-reply", id: second.id, status: 200, body: reply({ role: "assistant", content: "It said Hello." }) });
+    assert.equal((await worker.next("reply")).text, "It said Hello.");
+
+    const kinds = worker.outbox.filter((m) => m.type === "step").map((m) => m.step.kind);
+    assert.deepEqual(kinds, ["request", "response", "permission", "permission", "sandbox", "tool", "request", "response"]);
+    assert.equal(worker.outbox.find((m) => m.type === "step" && m.step.kind === "sandbox").step.run.elapsedMs, 12.3);
+  });
+
+  it("passes a page error to the harness with its code, so lesson 6 works without AGENTS.md", async () => {
+    const worker = startWorker(buildWorkerSource(transpileFiles(ts, files), "harness/06-agent.ts"));
+    await worker.next("ready");
+    worker.deliver({ type: "send", turn: 1, text: "hi" });
+    const prepare = await worker.next("page");
+    worker.deliver({ type: "page-reply", id: prepare.id, value: null });
+    const read = await worker.next("page");
+    assert.deepEqual([read.op, read.args], ["readWorkspaceFile", ["AGENTS.md"]]);
+    worker.deliver({ type: "page-reply", id: read.id, error: "AGENTS.md isn't in the workspace.", code: "ENOENT" });
+    const request = await worker.next("fetch");
+    assert.equal(JSON.parse(request.body).messages[0].role, "system");
+    worker.deliver({ type: "fetch-reply", id: request.id, status: 200, body: reply({ role: "assistant", content: "Hello." }) });
+    assert.equal((await worker.next("reply")).text, "Hello.");
+  });
+
+  it("creates the harness with the options the page chose, such as lesson 7's model", async () => {
+    const worker = startWorker(buildWorkerSource(transpileFiles(ts, files), "harness/07-swap-model.ts", { model: "qwen3.5:9b" }));
+    await worker.next("ready");
+    worker.deliver({ type: "send", turn: 1, text: "hi" });
+    const prepare = await worker.next("page");
+    worker.deliver({ type: "page-reply", id: prepare.id, value: null });
+    const read = await worker.next("page");
+    worker.deliver({ type: "page-reply", id: read.id, value: "- Be brief." });
+    const request = await worker.next("fetch");
+    assert.equal(JSON.parse(request.body).model, "qwen3.5:9b");
+  });
+
   it("reports a harness that doesn't export createHarness", async () => {
     const modules = transpileFiles(ts, { ...files, "harness/02-chat-loop.ts": "export const nothing = 1;\n" });
     const worker = startWorker(buildWorkerSource(modules, "harness/02-chat-loop.ts"));

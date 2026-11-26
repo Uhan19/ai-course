@@ -23,7 +23,7 @@ export function transpileFiles(ts, files) {
   return output;
 }
 
-export function buildWorkerSource(modules, entry) {
+export function buildWorkerSource(modules, entry, options = {}) {
   const factories = Object.entries(modules)
     .map(([path, code]) => `${JSON.stringify(path)}: function (exports, require, module) {\n${code}\n}`)
     .join(",\n");
@@ -32,6 +32,7 @@ const __modules = {
 ${factories}
 };
 const __entry = ${JSON.stringify(entry)};
+const __options = ${JSON.stringify(options).replace(/</g, "\\u003c")};
 const __cache = {};
 function __resolve(from, spec) {
   if (!spec.startsWith(".")) throw new Error("Only relative imports of the harness files work here, not " + spec + ".");
@@ -54,39 +55,53 @@ function __load(path) {
 }
 let __seq = 0;
 const __waiting = new Map();
-self.fetch = (url, init = {}) =>
-  new Promise((resolve, reject) => {
+function __ask(message) {
+  return new Promise((resolve, reject) => {
     const id = ++__seq;
     __waiting.set(id, { resolve, reject });
-    postMessage({
-      type: "fetch",
-      id,
-      url: String(url),
-      method: String(init.method || "GET").toUpperCase(),
-      body: typeof init.body === "string" ? init.body : null,
-    });
+    postMessage({ ...message, id });
   });
+}
+self.fetch = (url, init = {}) =>
+  __ask({
+    type: "fetch",
+    url: String(url),
+    method: String(init.method || "GET").toUpperCase(),
+    body: typeof init.body === "string" ? init.body : null,
+  });
+const __page = (op) => (...args) => __ask({ type: "page", op, args: structuredClone(args) });
+self.coursePage = Object.freeze({
+  prepareSandbox: __page("prepareSandbox"),
+  runInSandbox: __page("runInSandbox"),
+  readWorkspaceFile: __page("readWorkspaceFile"),
+});
+const __askUser = (request) => __ask({ type: "ask", request: structuredClone(request) }).then(Boolean);
 let __turn = 0;
 const __step = (step) => postMessage({ type: "step", turn: __turn, step });
 const __xray = {
   request: (body, why) => __step({ kind: "request", why: String(why), body: structuredClone(body) }),
   response: (body, elapsedMs, why) => __step({ kind: "response", why: String(why), body: structuredClone(body), elapsedMs }),
   tool: (step, why) => __step({ kind: "tool", why: String(why), step: { ...structuredClone(step), elapsedMs: Math.round(step.elapsedMs * 10) / 10 } }),
+  sandbox: (run, why) => __step({ kind: "sandbox", why: String(why), run: { ...structuredClone(run), elapsedMs: Math.round(run.elapsedMs * 10) / 10 } }),
+  permission: (step, why) => __step({ kind: "permission", why: String(why), step: structuredClone(step) }),
+  context: (step, why) => __step({ kind: "context", why: String(why), step: structuredClone(step) }),
   note: (why) => __step({ kind: "note", why: String(why) }),
 };
 let __harness = null;
 self.onmessage = async (event) => {
   const message = event.data;
-  if (message.type === "fetch-reply") {
+  if (message.type === "fetch-reply" || message.type === "page-reply" || message.type === "answer") {
     const waiter = __waiting.get(message.id);
     __waiting.delete(message.id);
     if (!waiter) return;
-    if (message.error) waiter.reject(new TypeError(message.error));
+    if (message.type === "answer") waiter.resolve(message.approved === true);
+    else if (message.error) waiter.reject(Object.assign(message.type === "fetch-reply" ? new TypeError(message.error) : new Error(message.error), message.code ? { code: message.code } : {}));
+    else if (message.type === "page-reply") waiter.resolve(message.value);
     else waiter.resolve(new Response(message.body, { status: message.status, headers: { "content-type": "application/json" } }));
   } else if (message.type === "send") {
     __turn = message.turn;
     try {
-      const text = await __harness.send(message.text, __xray);
+      const text = await __harness.send(message.text, __xray, __askUser);
       postMessage({ type: "reply", turn: message.turn, text: typeof text === "string" ? text : String(text ?? "") });
     } catch (error) {
       postMessage({ type: "error", turn: message.turn, message: error instanceof Error ? error.message : String(error) });
@@ -96,7 +111,7 @@ self.onmessage = async (event) => {
 try {
   const entry = __load(__entry);
   if (typeof entry.createHarness !== "function") throw new Error(__entry + " must export a createHarness() function.");
-  __harness = entry.createHarness();
+  __harness = entry.createHarness(__options);
   postMessage({ type: "ready" });
 } catch (error) {
   postMessage({ type: "load-error", message: error instanceof Error ? error.message : String(error) });

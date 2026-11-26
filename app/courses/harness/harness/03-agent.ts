@@ -1,5 +1,5 @@
 import { callModel } from "./01-talk-to-model.ts";
-import { TOOLS, toSchema } from "./03-tools.ts";
+import { TOOLS, toSchema, type Tool } from "./03-tools.ts";
 import { MODEL, THINK } from "./config.ts";
 import type { Harness, Message, ToolCall, XRay } from "./types.ts";
 
@@ -43,18 +43,18 @@ export function createHarness(): Harness {
 }
 
 // Run one tool call. Errors become a tool message too, so the model can see what went wrong and try again.
-export async function runTool(toolCall: ToolCall, xray: XRay): Promise<Message> {
+export async function runTool(toolCall: ToolCall, xray: XRay, tools: Tool[] = TOOLS): Promise<Message> {
   const { name, arguments: args } = toolCall.function;
-  const tool = TOOLS.find((candidate) => candidate.name === name);
+  const tool = tools.find((candidate) => candidate.name === name);
   const startedAt = performance.now();
   let content: string;
 
   if (!tool) {
-    content = `Error: there is no tool named "${name}". Available tools: ${TOOLS.map((t) => t.name).join(", ")}.`;
+    content = `Error: there is no tool named "${name}". Available tools: ${tools.map((t) => t.name).join(", ")}.`;
     xray.tool({ name, arguments: args, error: content, elapsedMs: 0 }, `The model asked for "${name}", which does not exist. Telling it so.`);
   } else {
     try {
-      content = await tool.run(args);
+      content = await tool.run(args, xray);
       xray.tool({ name, arguments: args, result: content, elapsedMs: performance.now() - startedAt }, `Ran ${name} because the model asked. The result goes back as a tool message.`);
     } catch (error) {
       content = `Error: ${error instanceof Error ? error.message : String(error)}`;

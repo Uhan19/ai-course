@@ -7,11 +7,13 @@ import {
   decideSource,
   fromClaudeReply,
   hasModel,
+  isPulled,
   localReady,
   ollamaEndpoint,
   ollamaRequest,
   parseCurlResult,
   probeLocal,
+  readConfigList,
   readConfigValue,
   setupSteps,
   toClaudeRequest,
@@ -93,8 +95,11 @@ describe("reaching Ollama through the desktop app", () => {
     assert.deepEqual(ready, {
       ollama: { running: true, installed: true, version: "0.40.16" },
       model: { name: "qwen3.5:9b", pulled: true },
+      models: ["qwen3.5:9b"],
     });
     assert.equal(localReady(ready), true);
+    assert.equal(isPulled(ready, "qwen3.5:9b"), true);
+    assert.equal(isPulled(ready, "qwen3.5:4b"), false);
     assert.deepEqual(setupSteps(ready), []);
 
     const bare = await probeLocal(fakeDesktop([["command -v ollama", { stdout: "/opt/homebrew/bin/ollama", code: 0 }]]), "qwen3.5:9b");
@@ -195,5 +200,13 @@ describe("Claude as the fallback model", () => {
     ]);
     assert.deepEqual(fromClaudeReply({ content: "Done.", tool_calls: [] }, { json: true }).message, { role: "assistant", content: "Done." });
     assert.equal(fromClaudeReply(["odd"], { json: true }).message.content, "odd");
+  });
+});
+
+describe("reading the model list from config.ts", () => {
+  it("reads MODELS, with or without a type", () => {
+    assert.deepEqual(readConfigList('export const MODELS = ["qwen3.5:4b", "qwen3.5:9b"];', "MODELS"), ["qwen3.5:4b", "qwen3.5:9b"]);
+    assert.deepEqual(readConfigList("export const MODELS: string[] = ['a', 'b', ];", "MODELS"), ["a", "b"]);
+    assert.equal(readConfigList("export const MODEL = 'a';", "MODELS"), null);
   });
 });

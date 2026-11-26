@@ -59,6 +59,9 @@ export interface XRay {
   request(body: ChatRequest, why: string): void;
   response(body: ChatResponse, elapsedMs: number, why: string): void;
   tool(step: ToolStep, why: string): void;
+  sandbox(run: SandboxRun, why: string): void;
+  permission(step: PermissionStep, why: string): void;
+  context(step: ContextStep, why: string): void;
   note(why: string): void;
 }
 
@@ -70,7 +73,61 @@ export interface ToolStep {
   elapsedMs: number;
 }
 
+// One docker run: the exact command, what it printed and how it ended. Lesson 4.
+// simulated is true when the page ran it in its in-page stand-in instead of Docker.
+export interface SandboxRun {
+  argv: string[];
+  stdin?: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  elapsedMs: number;
+  simulated?: boolean;
+}
+
+// What the harness asks the page to run in the sandbox. Lesson 4.
+export interface SandboxRequest {
+  command: string[];
+  stdin?: string;
+  timeoutMs: number;
+  maxOutputChars: number;
+}
+
+export type Decision = "allow" | "ask" | "deny";
+
+// One permission check: what the policy said and who made the final call. Lesson 5.
+export interface PermissionStep {
+  tool: string;
+  arguments: Record<string, unknown>;
+  decision: Decision;
+  decidedBy: "policy" | "you";
+  rule: string;
+}
+
+// One context check before a request: how full the context is and what was summarized. Lesson 6.
+export interface ContextStep {
+  limit: number;
+  tokensBefore: number;
+  summarized?: { role: Role; content: string }[];
+  summary?: string;
+}
+
+// What the harness shows you when it needs your approval. Lesson 5.
+export interface ApprovalRequest {
+  tool: string;
+  arguments: Record<string, unknown>;
+  action: string;
+  rule: string;
+}
+
+export type AskUser = (request: ApprovalRequest) => Promise<boolean>;
+
+export interface HarnessOptions {
+  model?: string;
+}
+
 // Every lesson's harness has this shape, so the try-it panel can talk to it.
 export interface Harness {
-  send(userText: string, xray: XRay): Promise<string>;
+  send(userText: string, xray: XRay, askUser: AskUser): Promise<string>;
 }

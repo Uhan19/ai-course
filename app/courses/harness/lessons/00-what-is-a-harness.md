@@ -63,6 +63,11 @@ It asked for the `get_current_time` tool, and the harness ran normal TypeScript 
 1. **Lesson 1:** send one raw request to the model, with no harness at all.
 2. **Lesson 2:** a chat loop, so the conversation has a memory.
 3. **Lesson 3:** tools and the full agent loop.
+4. **Lesson 4:** real file and command tools, locked inside a Docker sandbox.
+5. **Lesson 5:** permissions, so risky actions need your approval.
+6. **Lesson 6:** context: the system prompt, a project notes file, and summarizing when the conversation gets too long.
+7. **Lesson 7:** the same harness on a smaller and a larger model.
+8. **Lesson 8:** how Claude Code, Codex and Hermes do each of these.
 
 ## Exercises
 

@@ -143,7 +143,7 @@ function courseSection(course, ctx) {
     h(
       "header",
       { class: "course-head" },
-      h("p", { class: "eyebrow" }, `Course · ${course.lessons.length} lessons so far`),
+      h("p", { class: "eyebrow" }, `Course · ${course.lessons.length} lessons${course.comingNext?.length ? " so far" : ""}`),
       h("h2", { id: `course-${course.id}`, class: "course-title" }, course.title),
       h("p", { class: "course-summary" }, course.summary),
       h("div", { class: "course-progress" }, h("div", { class: "bar", role: "presentation" }, bar), progressText, resume),
