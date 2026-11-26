@@ -212,4 +212,3 @@ export const COMING_NEXT = [
   "Swap the model: a small versus a larger local model, same harness",
   "How Claude Code, Codex and Hermes each handle lessons 3 to 7",
 ];
-

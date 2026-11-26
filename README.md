@@ -48,7 +48,7 @@ test/                     Unit tests (node:test)
 
 1. Create `app/courses/<id>/course.js` exporting `{ id, title, summary, lessons, renderLesson(lesson, ctx) }`.
    Each lesson needs an `id`, `title`, `summary` and optional `flashcards` (`{ front, back, keyConcept }`).
-   `ctx` gives the course `runtime`, `markdown`, `flashcards(lesson)`, `pager(lesson)`, `watch(fn)` and `onDispose(fn)`.
+   `ctx` gives the course `runtime`, `markdown`, `replyMarkdown` (for untrusted text such as model replies), `flashcards(lesson)`, `pager(lesson)`, `watch(fn)` and `onDispose(fn)`.
 2. Add it to `COURSES` in `app/courses/index.js`.
 3. Add its files to the publish list below.
 
