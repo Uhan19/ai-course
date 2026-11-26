@@ -56,12 +56,17 @@ export function renderWorkPane({ lesson, ctx, course }) {
     if (session && next === signature) return session;
     const changed = Boolean(session);
     closeSession();
-    session = await createSession({
+    const created = await createSession({
       files,
       entry: lesson.entry,
       onStep: (step) => xray.add(step),
       onFetch: handleFetch,
     });
+    if (disposed) {
+      created.dispose();
+      return created;
+    }
+    session = created;
     signature = next;
     if (changed) xray.add({ kind: "note", why: "Your harness code changed, so the course loaded the new code and started a fresh conversation." });
     return session;
