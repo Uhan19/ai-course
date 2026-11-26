@@ -222,6 +222,7 @@ function lessonView(course, lesson, ctx) {
 
 function wireTopBar() {
   document.getElementById("brand-name").textContent = APP_NAME;
+  document.getElementById("brand-mark").textContent = APP_NAME.charAt(0).toUpperCase();
   const saveState = document.getElementById("save-state");
   const install = document.getElementById("install");
   install.addEventListener("click", async () => {
@@ -236,7 +237,7 @@ function wireTopBar() {
     install.hidden = rt.installState !== "available";
     if (!iconSet && rt.desktop?.app?.dock) {
       iconSet = true;
-      rt.desktop.app.dock.setIcon(drawAppIcon()).catch(() => {});
+      rt.desktop.app.dock.setIcon(drawAppIcon(APP_NAME)).catch(() => {});
     }
   };
   update(runtime);

@@ -1,7 +1,7 @@
 const SIZE = 256;
 const RADIUS = 58;
 
-export function drawAppIcon() {
+export function drawAppIcon(name) {
   const canvas = document.createElement("canvas");
   canvas.width = SIZE;
   canvas.height = SIZE;
@@ -10,18 +10,10 @@ export function drawAppIcon() {
   g.beginPath();
   g.roundRect(0, 0, SIZE, SIZE, RADIUS);
   g.fill();
-  g.strokeStyle = "#ffffff";
-  g.lineWidth = 26;
-  g.lineCap = "round";
-  g.lineJoin = "round";
-  g.beginPath();
-  g.moveTo(84, 70);
-  g.lineTo(84, 178);
-  g.lineTo(180, 178);
-  g.stroke();
-  g.fillStyle = "#9fd0b4";
-  g.beginPath();
-  g.arc(168, 92, 22, 0, Math.PI * 2);
-  g.fill();
+  g.fillStyle = "#ffffff";
+  g.font = '700 168px "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif';
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(String(name).charAt(0).toUpperCase(), SIZE / 2, SIZE / 2 + 8);
   return canvas.toDataURL("image/png");
 }

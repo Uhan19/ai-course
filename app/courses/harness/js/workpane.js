@@ -229,8 +229,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
       h(
         "div",
         { class: "panel-head" },
-        h("h2", {}, "Try it"),
-        h("span", { class: "panel-sub" }, `Runs ${lesson.entry}`),
+        h("div", { class: "panel-title" }, h("h2", {}, "Try it"), h("span", { class: "panel-sub" }, `Runs ${lesson.entry}`)),
         h("button", { type: "button", class: "btn btn-quiet btn-small", onclick: reset }, "New conversation"),
       ),
       modelPanel,
@@ -252,7 +251,12 @@ export function renderWorkPane({ lesson, ctx, course }) {
     h(
       "div",
       { class: "panel panel-xray" },
-      h("div", { class: "panel-head" }, h("h2", {}, "X-ray"), h("span", { class: "panel-sub" }, "Every message to and from the model, in order"), toggleJson),
+      h(
+        "div",
+        { class: "panel-head" },
+        h("div", { class: "panel-title" }, h("h2", {}, "X-ray"), h("span", { class: "panel-sub" }, "Every message to and from the model, in order")),
+        toggleJson,
+      ),
       xrayScroller,
     ),
   );
