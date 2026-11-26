@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
-    "preview": "node dev/serve.mjs"
+    "preview": "node dev/serve.mjs",
+    "test:docker": "node --test \"test-docker/**/*.test.js\""
   },
   "devDependencies": {
     "marked": "18.2.1",

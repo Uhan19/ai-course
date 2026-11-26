@@ -1,11 +1,11 @@
-import type { ToolSchema } from "./types.ts";
+import type { ToolSchema, XRay } from "./types.ts";
 
 export interface Tool {
   name: string;
   description: string;
   parameters: Record<string, { type: string; description: string }>;
   required: string[];
-  run(args: Record<string, unknown>): string | Promise<string>;
+  run(args: Record<string, unknown>, xray: XRay): string | Promise<string>;
 }
 
 const ARITHMETIC_ONLY = /^[\d\s+\-*/().]+$/;

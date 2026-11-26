@@ -8,9 +8,9 @@ export function loadTypeScript() {
   return loadScript(TYPESCRIPT_URL, "ts", TYPESCRIPT_INTEGRITY);
 }
 
-export async function createSession({ files, entry, onStep, onFetch }) {
+export async function createSession({ files, entry, options, onStep, onFetch, onPage, onAsk }) {
   const ts = await loadTypeScript();
-  const source = buildWorkerSource(transpileFiles(ts, files), entry);
+  const source = buildWorkerSource(transpileFiles(ts, files), entry, options);
   const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
   let worker;
   try {
@@ -76,6 +76,20 @@ export async function createSession({ files, entry, onStep, onFetch }) {
           .then(
             (reply) => !closed && worker.postMessage({ type: "fetch-reply", id: message.id, status: reply.status, body: reply.body }),
             (error) => !closed && worker.postMessage({ type: "fetch-reply", id: message.id, error: String(error?.message ?? error) }),
+          );
+      } else if (message.type === "page") {
+        Promise.resolve()
+          .then(() => onPage(message.op, message.args))
+          .then(
+            (value) => !closed && worker.postMessage({ type: "page-reply", id: message.id, value }),
+            (error) => !closed && worker.postMessage({ type: "page-reply", id: message.id, error: String(error?.message ?? error), code: error?.code }),
+          );
+      } else if (message.type === "ask") {
+        Promise.resolve()
+          .then(() => onAsk(message.request))
+          .then(
+            (approved) => !closed && worker.postMessage({ type: "answer", id: message.id, approved: approved === true }),
+            () => !closed && worker.postMessage({ type: "answer", id: message.id, approved: false }),
           );
       } else if (message.type === "reply" || message.type === "error") {
         const settle = turns.get(message.turn);

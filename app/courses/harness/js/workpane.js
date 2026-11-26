@@ -1,11 +1,14 @@
 import { errorCopy } from "../../../js/runtime.js";
 import { commandLine, h, trusted } from "../../../js/ui.js";
-import { fromClaudeReply, localReady, ollamaEndpoint, ollamaRequest, toClaudeRequest } from "./model-source.js";
+import { fromClaudeReply, isPulled, localReady, ollamaEndpoint, ollamaRequest, pullStep, toClaudeRequest } from "./model-source.js";
 import { sourceSignature } from "./bundle.js";
+import { SANDBOX_IMAGE, WORKSPACE_LABEL } from "./sandbox.js";
 import { createSession } from "./session.js";
 import { XRayLog } from "./xray-view.js";
 
 const CLAUDE_TIER = "quick";
+const ALL_MODELS = "all";
+const RESET_LABEL_MS = 1500;
 const RAW_NOTE = "This shows the page's request to Claude, not a raw wire request.";
 
 function fallbackNote(sources) {
@@ -13,8 +16,16 @@ function fallbackNote(sources) {
   return `${why}, so the page passed this request to Claude through your own Claude account. ${RAW_NOTE}`;
 }
 
+function sandboxNote(mode, sandbox) {
+  if (mode.mode === "docker") {
+    return `The page runs each sandbox command in a fresh Docker container (${SANDBOX_IMAGE}, Docker ${sandbox.version}) with the same locks every time. Only ${WORKSPACE_LABEL} on your computer is visible inside, as /workspace.`;
+  }
+  return `The sandbox is simulated in this page, because ${mode.reason}. Commands work on a copy of the workspace files kept in this page, so nothing runs on your computer, and only simple commands such as ls, cat, grep and wc work.`;
+}
+
 export function renderWorkPane({ lesson, ctx, course }) {
-  const { sources, codeStore, replyMarkdown } = course;
+  const { sources, codeStore, replyMarkdown, sandbox, getModels } = course;
+  if (lesson.usesSandbox) sandbox.activate();
   const chatLog = h("div", { class: "chat-log", "aria-live": "polite" });
   const xrayScroller = h("div", { class: "panel-body" });
   const xray = new XRayLog(xrayScroller);
@@ -23,53 +34,108 @@ export function renderWorkPane({ lesson, ctx, course }) {
 
   const input = h("textarea", { rows: "1", placeholder: "Message the harness…", "aria-label": "Message", id: `harness-message-${lesson.id}` });
   const sendButton = h("button", { type: "submit", class: "btn btn-primary" }, "Send");
-  const chips = lesson.suggestions.map((text) => h("button", { type: "button", class: "chip-btn", onclick: () => send(text) }, text));
+  const realSandboxNotes = [];
+  const chips = lesson.suggestions.map((entry) => {
+    const { text, needsRealSandbox } = typeof entry === "string" ? { text: entry } : entry;
+    const note = needsRealSandbox ? h("span", { class: "chip-note", hidden: true }, " · needs the real sandbox") : null;
+    if (note) realSandboxNotes.push(note);
+    return h("button", { type: "button", class: "chip-btn", onclick: () => send(text) }, text, note);
+  });
   const suggestions = h("div", { class: "suggestions" }, chips);
 
   const showEmptyChat = () => chatLog.replaceChildren(h("p", { class: "chat-empty" }, lesson.chatHint, " Try one of these, or type your own."));
   showEmptyChat();
 
-  let session = null;
-  let signature = "";
+  const sessions = new Map();
+  const openAsks = new Set();
   let busy = false;
   let controller = null;
   let disposed = false;
   let turnSource = null;
   let turnNote = "";
+  let turnSandbox = null;
+  let notedSandbox = "";
+  let pending = null;
+  let chosenModel = ALL_MODELS;
 
   const canSend = () => !busy && sources.source !== "none";
   const syncControls = () => {
     sendButton.disabled = !canSend();
     for (const chip of chips) chip.disabled = !canSend();
+    for (const button of modelPanel.querySelectorAll("[data-needs-idle]")) button.disabled = busy;
+    const simulated = lesson.usesSandbox && sandbox.modeFor(sources.source).mode === "simulated";
+    for (const note of realSandboxNotes) note.hidden = !simulated;
   };
 
-  function closeSession() {
-    session?.dispose();
-    session = null;
-    signature = "";
+  function closeSessions() {
+    for (const { session } of sessions.values()) session.dispose();
+    sessions.clear();
+    for (const settle of openAsks) settle(false);
+    openAsks.clear();
   }
 
-  async function ensureSession() {
+  async function ensureSession(model) {
     await codeStore.load();
     const files = codeStore.all();
     const next = sourceSignature(files);
-    if (session && next === signature) return session;
-    const changed = Boolean(session);
-    closeSession();
+    const key = model ?? "";
+    const existing = sessions.get(key);
+    if (existing && existing.signature === next) return existing.session;
+    existing?.session.dispose();
+    sessions.delete(key);
     const created = await createSession({
       files,
       entry: lesson.entry,
+      options: model ? { model } : {},
       onStep: (step) => xray.add(step),
       onFetch: handleFetch,
+      onPage: handlePage,
+      onAsk: askUser,
     });
     if (disposed) {
       created.dispose();
       return created;
     }
-    session = created;
-    signature = next;
-    if (changed) xray.add({ kind: "note", why: "Your harness code changed, so the course loaded the new code and started a fresh conversation." });
-    return session;
+    sessions.set(key, { session: created, signature: next });
+    if (existing) xray.add({ kind: "note", why: "Your harness code changed, so the course loaded the new code and started a fresh conversation." });
+    return created;
+  }
+
+  function noteSandbox() {
+    const mode = turnSandbox ?? sandbox.modeFor(sources.source);
+    const key = `${mode.mode}:${mode.reason ?? ""}`;
+    if (key === notedSandbox) return mode;
+    notedSandbox = key;
+    xray.note(sandboxNote(mode, sandbox), undefined, undefined, { badge: mode.mode === "docker" ? "Page runs Docker" : "Simulated sandbox", tone: mode.mode === "docker" ? "sandbox" : "simulated" });
+    return mode;
+  }
+
+  async function handlePage(op, args = []) {
+    if (op === "prepareSandbox") {
+      await sandbox.prepare(noteSandbox().mode);
+      return null;
+    }
+    if (op === "runInSandbox") return sandbox.run(noteSandbox().mode, args[0]);
+    if (op === "readWorkspaceFile") return sandbox.read(noteSandbox().mode, args[0]);
+    throw new Error(`The page has no ${String(op)} for harness code.`);
+  }
+
+  function askUser(request) {
+    if (disposed) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const settle = (approved) => {
+        openAsks.delete(settle);
+        resolve(approved);
+      };
+      openAsks.add(settle);
+      pending?.setWaitingFor("you");
+      xray.pauseClock();
+      appendApproval(request, (approved) => {
+        pending?.setWaitingFor("the harness");
+        xray.resumeClock();
+        settle(approved);
+      });
+    });
   }
 
   async function handleFetch(request) {
@@ -108,28 +174,64 @@ export function renderWorkPane({ lesson, ctx, course }) {
     return { message: `The harness threw an error: ${detail}` };
   }
 
+  const comparing = () => lesson.comparesModels && sources.source === "local";
+  const chosenModels = () => {
+    if (!comparing()) return [undefined];
+    const models = getModels();
+    return chosenModel === ALL_MODELS || !models.includes(chosenModel) ? models : [chosenModel];
+  };
+
   async function send(text) {
     const trimmed = text.trim();
     if (!trimmed || !canSend()) return;
     busy = true;
     turnSource = sources.source;
     turnNote = fallbackNote(sources);
+    turnSandbox = lesson.usesSandbox ? sandbox.modeFor(turnSource) : null;
     controller = new AbortController();
     syncControls();
     input.value = "";
     chatLog.querySelector(".chat-empty")?.remove();
     appendBubble("user", trimmed);
-    const pending = appendPending();
+    const models = chosenModels();
+    const rows = [];
+    try {
+      if (turnSource === "local" && models.some((model) => model && !isPulled(sources.probe, model))) await sources.refresh().catch(() => {});
+      for (const model of models) {
+        if (disposed) break;
+        const row = await runTurn(trimmed, model, models.length > 1);
+        if (model && row) rows.push({ model, ...row });
+      }
+      if (rows.length > 1) xray.addComparison(rows);
+    } finally {
+      busy = false;
+      controller = null;
+      turnSandbox = null;
+      if (!disposed) {
+        syncControls();
+        input.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  async function runTurn(text, model, labelReplies) {
+    if (model && turnSource === "local" && sources.probe?.ollama.running && !isPulled(sources.probe, model)) {
+      const step = pullStep(model);
+      appendError(step.problem, step.command);
+      return null;
+    }
+    pending = appendPending();
     let outcome = "failed";
     let failure = "";
+    let stats;
     try {
-      const active = await ensureSession().catch((error) => {
+      const active = await ensureSession(model).catch((error) => {
         throw Object.assign(new Error(error.message), { loadError: true });
       });
-      xray.startTurn(trimmed, turnSource);
-      const result = await active.send(trimmed);
+      xray.startTurn(text, turnSource, labelReplies ? model : undefined);
+      const result = await active.send(text);
       if (result.type === "reply") {
-        appendBubble("assistant", result.text);
+        appendBubble("assistant", result.text, labelReplies ? model : undefined);
         outcome = "answered";
       } else {
         const explained = await explainFailure(result.message);
@@ -138,31 +240,55 @@ export function renderWorkPane({ lesson, ctx, course }) {
       }
     } catch (error) {
       failure = error.loadError ? `Your harness code didn't load: ${error.message}` : String(error.message ?? error);
-      if (!xray.turn) xray.startTurn(trimmed, turnSource);
+      if (!xray.turn) xray.startTurn(text, turnSource, labelReplies ? model : undefined);
       appendError(failure);
     } finally {
       pending.stop();
-      xray.endTurn(outcome, failure);
-      busy = false;
-      controller = null;
-      if (!disposed) {
-        syncControls();
-        input.focus({ preventScroll: true });
-      }
+      pending = null;
+      stats = xray.endTurn(outcome, failure);
     }
+    return stats ? { outcome, stats } : null;
   }
 
   function reset() {
     if (busy) return;
-    closeSession();
+    closeSessions();
+    notedSandbox = "";
     showEmptyChat();
     xray.clear();
   }
 
-  function appendBubble(role, text) {
+  function appendBubble(role, text, model) {
     const body = role === "assistant" ? trusted(replyMarkdown.parse(text || "(empty reply)", { async: false })) : text;
-    chatLog.append(h("div", { class: `bubble bubble-${role}` }, body));
+    chatLog.append(h("div", { class: `bubble bubble-${role}` }, model ? h("span", { class: "bubble-model" }, model) : null, body));
     chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function appendApproval(request, onAnswer) {
+    const status = h("p", { class: "approval-status", role: "status" }, "The harness is paused until you choose.");
+    const approve = h("button", { type: "button", class: "btn btn-primary btn-small" }, "Approve");
+    const deny = h("button", { type: "button", class: "btn btn-danger btn-small" }, "Deny");
+    const card = h(
+      "div",
+      { class: "bubble bubble-approval", role: "group", "aria-label": "Permission request" },
+      h("p", { class: "approval-title" }, "The model wants to ", h("strong", {}, String(request?.action ?? `use ${request?.tool}`))),
+      h("p", { class: "approval-rule" }, `Policy rule: ${String(request?.rule ?? "")}`),
+      h("div", { class: "approval-buttons" }, approve, deny, status),
+      h("pre", { class: "approval-args" }, JSON.stringify(request?.arguments ?? {}, null, 2)),
+    );
+    const answer = (approved) => {
+      approve.disabled = true;
+      deny.disabled = true;
+      card.classList.add(approved ? "approval-approved" : "approval-denied");
+      status.textContent = approved ? "You approved. The harness runs it." : "You denied. The harness tells the model it may not do this.";
+      onAnswer(approved);
+    };
+    approve.addEventListener("click", () => answer(true));
+    deny.addEventListener("click", () => answer(false));
+    if (pending?.bubble.isConnected) chatLog.insertBefore(card, pending.bubble);
+    else chatLog.append(card);
+    chatLog.scrollTop = card.offsetTop - chatLog.offsetTop - 8;
+    approve.focus({ preventScroll: true });
   }
 
   function appendError(message, command, detail) {
@@ -185,10 +311,17 @@ export function renderWorkPane({ lesson, ctx, course }) {
     chatLog.append(bubble);
     chatLog.scrollTop = chatLog.scrollHeight;
     const startedAt = performance.now();
-    const timer = setInterval(() => {
-      label.textContent = `Waiting for the harness… ${Math.round((performance.now() - startedAt) / 1000)} s`;
-    }, 1000);
+    let waitingFor = "the harness";
+    const update = () => {
+      label.textContent = `Waiting for ${waitingFor}… ${Math.round((performance.now() - startedAt) / 1000)} s`;
+    };
+    const timer = setInterval(update, 1000);
     return {
+      bubble,
+      setWaitingFor(who) {
+        waitingFor = who;
+        update();
+      },
       stop() {
         clearInterval(timer);
         bubble.remove();
@@ -215,17 +348,81 @@ export function renderWorkPane({ lesson, ctx, course }) {
     toggleJson.textContent = allOpen ? "Collapse all JSON" : "Expand all JSON";
   });
 
+  let resetting = false;
+  let resetLabel = "Reset files";
+  async function resetFiles() {
+    if (busy || resetting) return;
+    resetting = true;
+    drawModelPanel();
+    try {
+      await sandbox.reset(sandbox.modeFor(sources.source).mode);
+      resetLabel = "Files reset";
+      setTimeout(() => {
+        resetLabel = "Reset files";
+        if (!disposed) drawModelPanel();
+      }, RESET_LABEL_MS);
+    } catch (error) {
+      appendError("The workspace files couldn't be reset.", undefined, String(error?.message ?? error));
+    } finally {
+      resetting = false;
+      if (!disposed) drawModelPanel();
+    }
+  }
+
   const drawModelPanel = () => {
-    modelPanel.replaceChildren(...renderModelPanel(sources, ctx.runtime));
+    modelPanel.replaceChildren(
+      ...renderModelPanel(sources, ctx.runtime),
+      ...(lesson.usesSandbox ? renderSandboxPanel({ sandbox, sources, resetFiles, resetting, resetLabel, onError: appendError }) : []),
+      ...(comparing() ? [renderModelPicker()] : []),
+      ...(lesson.comparesModels && sources.source === "claude"
+        ? [h("p", { class: "model-note" }, "Comparing models needs the local models in the installed app. With Claude as the model, every message goes to Claude.")]
+        : []),
+    );
     modelPanel.dataset.source = sources.source;
     syncControls();
   };
+
+  function renderModelPicker() {
+    const models = getModels();
+    const name = `harness-model-${lesson.id}`;
+    const options = [...models.map((model) => ({ value: model, label: model })), { value: ALL_MODELS, label: "All, one after the other" }];
+    const selected = options.some((option) => option.value === chosenModel) ? chosenModel : ALL_MODELS;
+    return h(
+      "fieldset",
+      { class: "model-picker" },
+      h("legend", {}, "Send to"),
+      options.map((option) =>
+        h(
+          "label",
+          {},
+          h("input", {
+            type: "radio",
+            name,
+            value: option.value,
+            checked: option.value === selected,
+            onchange: () => (chosenModel = option.value),
+          }),
+          option.value === ALL_MODELS ? option.label : h("code", {}, option.label),
+        ),
+      ),
+    );
+  }
+
   ctx.onDispose(sources.subscribe(drawModelPanel));
+  if (lesson.usesSandbox) ctx.onDispose(sandbox.subscribe(drawModelPanel));
+  if (lesson.comparesModels) {
+    ctx.onDispose(
+      codeStore.subscribe((path) => {
+        if (path === "harness/config.ts") drawModelPanel();
+      }),
+    );
+    codeStore.load().then(() => !disposed && drawModelPanel(), () => {});
+  }
   ctx.watch(drawModelPanel);
   ctx.onDispose(() => {
     disposed = true;
     controller?.abort();
-    closeSession();
+    closeSessions();
   });
 
   return h(
@@ -281,11 +478,10 @@ function renderModelPanel(sources, runtime) {
     return [status("checking", "Checking for a model…")];
   }
   if (source === "local") {
-    parts.push(status("ok", h("strong", {}, sources.model), ` on your computer, through Ollama ${probe.ollama.version}.`));
     const actions = h("div", { class: "model-actions" });
     if (sources.claudeAvailable) actions.append(button("Use Claude instead", () => sources.prefer("claude")));
     actions.append(button("Check again", () => sources.refresh()));
-    parts.push(actions);
+    parts.push(h("div", { class: "model-row" }, status("ok", h("strong", {}, sources.model), ` on your computer, through Ollama ${probe.ollama.version}.`), actions));
     return parts;
   }
   if (source === "claude") {
@@ -314,10 +510,16 @@ function renderModelPanel(sources, runtime) {
   } else if (local === "no-desktop") {
     parts.push(h("p", { class: "model-note" }, "The local model works in the installed desktop app. Open this page in the Claude desktop app and choose Install as app."));
   } else if (local === "needs-permission") {
-    parts.push(h("p", { class: "model-note" }, "To reach Ollama on your computer, the app needs permission to run local programs. It only runs fixed commands: requests to Ollama's local API, and a check that Ollama is installed."));
+    parts.push(
+      h(
+        "p",
+        { class: "model-note" },
+        `To reach Ollama and run the Docker sandbox on your computer, the app needs permission to run local programs. It only runs fixed commands: requests to Ollama's local API, checks that Ollama and Docker are installed and running, and docker run with the sandbox's locks (and docker kill when a command runs too long). It also keeps the agent's files in ${WORKSPACE_LABEL}, and Reset files moves that folder to the Trash.`,
+      ),
+    );
     actions.append(button("Allow local model", () => sources.refresh({ ask: true }), true));
   } else if (local === "denied") {
-    parts.push(h("p", { class: "model-note" }, "Running local programs is turned off for this app, so it can't reach Ollama."));
+    parts.push(h("p", { class: "model-note" }, "Running local programs is turned off for this app, so it can't reach Ollama or run the Docker sandbox."));
     actions.append(button("Change permissions", () => sources.manageDesktopPermissions()));
   } else if (local === "unavailable") {
     parts.push(h("p", { class: "model-note" }, "The app can't run local programs right now. This needs the Claude desktop app signed in to the organization that published this course."));
@@ -341,4 +543,64 @@ function renderModelPanel(sources, runtime) {
   }
   if (actions.childElementCount) parts.push(actions);
   return parts;
+}
+
+function renderSandboxPanel({ sandbox, sources, resetFiles, resetting, resetLabel, onError }) {
+  if (sources.source === "none") return [];
+  const mode = sandbox.modeFor(sources.source);
+  const parts = [];
+  const status = (tone, ...text) => h("p", { class: `model-status model-${tone}` }, h("span", { class: "model-dot", "aria-hidden": "true" }), h("span", {}, ...text));
+  const actions = h("div", { class: "model-actions" });
+  const reset = h(
+    "button",
+    {
+      type: "button",
+      class: "btn btn-small btn-quiet",
+      "data-needs-idle": "",
+      title: mode.mode === "docker" ? `Moves ${WORKSPACE_LABEL} to the Trash and puts back the starting files` : "Puts back the starting files",
+      onclick: resetFiles,
+    },
+    resetting ? "Resetting…" : resetLabel,
+  );
+  if (sources.source === "local" && sandbox.canUseDocker && sandbox.docker === "checking") {
+    parts.push(status("checking", "Checking Docker for the sandbox…"));
+    return [h("div", { class: "sandbox-panel" }, parts)];
+  }
+  if (mode.mode === "docker") {
+    actions.append(
+      h(
+        "button",
+        {
+          type: "button",
+          class: "btn btn-small btn-quiet",
+          onclick: () => sandbox.openFolder().catch((error) => onError("The workspace folder couldn't be opened.", undefined, String(error?.message ?? error))),
+        },
+        "Open folder",
+      ),
+      reset,
+    );
+    parts.push(h("div", { class: "model-row" }, status("ok", "Sandbox: ", h("strong", {}, `Docker ${sandbox.version}`), ". The agent's files are in ", h("code", {}, WORKSPACE_LABEL), "."), actions));
+    return [h("div", { class: "sandbox-panel" }, parts)];
+  }
+  const simulatedStatus = status("sim", "Sandbox: ", h("strong", {}, "simulated in this page"), `, because ${mode.reason}.`);
+  const fixable = sources.source === "local" && sandbox.canUseDocker && ["missing", "stopped", "no-image"].includes(sandbox.docker);
+  if (fixable) {
+    parts.push(
+      h(
+        "details",
+        { class: "setup" },
+        h("summary", {}, "Set up Docker for the real sandbox"),
+        h(
+          "ol",
+          { class: "setup-steps" },
+          sandbox.steps.map((s) => h("li", {}, h("p", {}, s.problem), s.command ? commandLine(s.command) : null, s.hint ? h("p", { class: "model-note" }, s.hint) : null)),
+        ),
+      ),
+    );
+  } else if (sandbox.docker === "error") {
+    parts.push(h("p", { class: "model-note" }, `Details: ${sandbox.error}`));
+  }
+  if (fixable || sandbox.docker === "error") actions.append(h("button", { type: "button", class: "btn btn-small btn-quiet", onclick: () => sandbox.refresh() }, "Check Docker again"));
+  actions.append(reset);
+  return [h("div", { class: "sandbox-panel" }, h("div", { class: "model-row" }, simulatedStatus, actions), parts)];
 }
