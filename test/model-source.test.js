@@ -74,7 +74,7 @@ describe("reaching Ollama through the desktop app", () => {
     await assert.rejects(ollamaRequest(down, { path: "/api/version", method: "GET" }), /fetch failed: could not reach Ollama/);
   });
 
-  it("probes Ollama, the model and Docker", async () => {
+  it("probes Ollama and the model", async () => {
     const fakeDesktop = (answers) => ({
       childProcess: {
         exec: async (command) => {
@@ -87,33 +87,29 @@ describe("reaching Ollama through the desktop app", () => {
       fakeDesktop([
         ["/api/version", { stdout: '{"version":"0.40.16"}\n__PRIMER_HTTP_STATUS__200', code: 0 }],
         ["/api/tags", { stdout: '{"models":[{"name":"qwen3.5:9b"}]}\n__PRIMER_HTTP_STATUS__200', code: 0 }],
-        ["docker info", { stdout: "29.9.3\n", code: 0 }],
       ]),
       "qwen3.5:9b",
     );
     assert.deepEqual(ready, {
       ollama: { running: true, installed: true, version: "0.40.16" },
       model: { name: "qwen3.5:9b", pulled: true },
-      docker: { state: "running", version: "29.9.3" },
     });
     assert.equal(localReady(ready), true);
     assert.deepEqual(setupSteps(ready), []);
 
     const bare = await probeLocal(fakeDesktop([["command -v ollama", { stdout: "/opt/homebrew/bin/ollama", code: 0 }]]), "qwen3.5:9b");
     assert.deepEqual(bare.ollama, { running: false, installed: true, version: "" });
-    assert.equal(bare.docker.state, "missing");
     assert.equal(localReady(bare), false);
     const steps = setupSteps(bare);
     assert.deepEqual(
       steps.map((s) => s.command ?? null),
-      ["brew services start ollama", "ollama pull qwen3.5:9b", null],
+      ["brew services start ollama", "ollama pull qwen3.5:9b"],
     );
-    assert.equal(steps.at(-1).optional, true);
     assert.equal(steps[1].problem, "The model qwen3.5:9b isn't downloaded yet (about 7.6 GB).");
   });
 
   it("explains a missing Ollama install, per platform", () => {
-    const probe = { ollama: { running: false, installed: false }, model: { name: "m", pulled: false }, docker: { state: "running" } };
+    const probe = { ollama: { running: false, installed: false }, model: { name: "m", pulled: false } };
     assert.deepEqual(
       setupSteps(probe, "darwin").map((s) => s.command),
       ["brew install ollama", "brew services start ollama", "ollama pull m"],
@@ -126,6 +122,11 @@ describe("reaching Ollama through the desktop app", () => {
   it("checks the model list and reads config values", () => {
     assert.equal(hasModel({ models: [{ name: "a" }, { model: "b" }] }, "b"), true);
     assert.equal(hasModel({}, "a"), false);
+    const pulledUntagged = { models: [{ name: "llama3.2:latest", model: "llama3.2:latest" }, { name: "me/tiny:latest", model: "me/tiny:latest" }] };
+    assert.equal(hasModel(pulledUntagged, "llama3.2"), true);
+    assert.equal(hasModel(pulledUntagged, "me/tiny"), true);
+    assert.equal(hasModel(pulledUntagged, "llama3.2:1b"), false);
+    assert.equal(hasModel({ models: [{ name: "llama3.2:1b" }] }, "llama3.2"), false);
     const config = 'export const OLLAMA_URL = "http://127.0.0.1:11434";\nexport const MODEL = "qwen3.5:9b";\nexport const THINK = false;';
     assert.equal(readConfigValue(config, "MODEL"), "qwen3.5:9b");
     assert.equal(readConfigValue(config, "MISSING"), null);

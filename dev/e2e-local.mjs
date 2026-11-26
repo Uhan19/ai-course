@@ -26,7 +26,7 @@ const root = new URL("../app/courses/harness/", import.meta.url);
 const files = Object.fromEntries(await Promise.all(HARNESS_FILES.map(async (path) => [path, await readFile(new URL(path, root), "utf8")])));
 const model = readConfigValue(files["harness/config.ts"], "MODEL");
 const probe = await probeLocal(desktop, model);
-console.log(`Probe: Ollama ${probe.ollama.running ? probe.ollama.version : "not running"}, ${model} ${probe.model.pulled ? "pulled" : "missing"}, Docker ${probe.docker.state}`);
+console.log(`Probe: Ollama ${probe.ollama.running ? probe.ollama.version : "not running"}, ${model} ${probe.model.pulled ? "pulled" : "missing"}`);
 if (!localReady(probe)) {
   console.error("The local model isn't ready, so there is nothing to drive.");
   process.exit(1);

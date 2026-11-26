@@ -94,7 +94,7 @@ export function describe(step, source = "local") {
         meta,
         preview: "",
         json: step.body,
-        jsonLabel: viaClaude ? "Request body the harness built (the page passes it to Claude, see the next step)" : "Request body sent to Ollama",
+        jsonLabel: viaClaude ? "Request JSON the harness built (the page passes it to Claude, see the next step)" : "Request JSON sent to Ollama",
       };
     }
     case "response": {
@@ -118,7 +118,7 @@ export function describe(step, source = "local") {
         meta,
         preview,
         json: body,
-        jsonLabel: viaClaude ? "Response body the page built from Claude's reply" : "Response body from Ollama",
+        jsonLabel: viaClaude ? "Response JSON the page built from Claude's reply" : "Response JSON from Ollama",
       };
     }
     case "tool": {
@@ -131,11 +131,11 @@ export function describe(step, source = "local") {
         meta: `${Number(tool.elapsedMs).toFixed(1)} ms`,
         preview: `${tool.name}(${JSON.stringify(tool.arguments)}) → ${truncate(String(outcome ?? ""))}`,
         json: tool,
-        jsonLabel: "Tool call and result",
+        jsonLabel: "Tool call and result JSON",
       };
     }
     case "page":
-      return { badge: "Page ↔ Claude", tone: "page", meta: "", preview: "", json: step.json, jsonLabel: step.jsonLabel ?? "Details" };
+      return { badge: "Page ↔ Claude", tone: "page", meta: "", preview: "", json: step.json, jsonLabel: step.jsonLabel };
     default:
       return { badge: "Harness", tone: "note", meta: "", preview: "", json: undefined, jsonLabel: "" };
   }

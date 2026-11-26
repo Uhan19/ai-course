@@ -198,7 +198,7 @@ function pager(course, lesson) {
 function lessonView(course, lesson, ctx) {
   return h(
     "div",
-    { class: `lesson-page${course.wide ? " is-wide" : ""}` },
+    { class: "lesson-page" },
     h(
       "nav",
       { class: "crumbs", "aria-label": "Breadcrumb" },

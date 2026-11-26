@@ -3,13 +3,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  CURL_TIMEOUT_S,
-  DOCKER_CLI_COMMAND,
-  DOCKER_COMMAND,
-  OLLAMA_CLI_COMMAND,
-  curlCommand,
-} from "../app/courses/harness/js/model-source.js";
+import { CURL_TIMEOUT_S, OLLAMA_CLI_COMMAND, curlCommand } from "../app/courses/harness/js/model-source.js";
 
 const ROOT = fileURLToPath(new URL("../app/", import.meta.url));
 const DEV = fileURLToPath(new URL("./", import.meta.url));
@@ -27,8 +21,6 @@ const SKELETON_HEAD =
 const PROBE_TIMEOUT_S = 3;
 const ALLOWED_COMMANDS = new Set([
   OLLAMA_CLI_COMMAND,
-  DOCKER_COMMAND,
-  DOCKER_CLI_COMMAND,
   ...[CURL_TIMEOUT_S, PROBE_TIMEOUT_S].flatMap((timeout) => [
     curlCommand({ path: "/api/chat", method: "POST" }, timeout),
     curlCommand({ path: "/api/tags", method: "GET" }, timeout),

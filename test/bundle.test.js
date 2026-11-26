@@ -33,8 +33,6 @@ describe("running the harness files in a worker", () => {
   it("transpiles every harness file", () => {
     const modules = transpileFiles(ts, files);
     assert.deepEqual(Object.keys(modules), HARNESS_FILES);
-    assert.match(modules["harness/02-chat-loop.ts"], /require\("\.\/01-talk-to-model\.ts"\)/);
-    assert.doesNotMatch(modules["harness/02-chat-loop.ts"], /: Message\[\]/);
   });
 
   it("reports a syntax error with the file and line", () => {

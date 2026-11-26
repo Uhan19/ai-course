@@ -3,7 +3,6 @@ export const CURL_TIMEOUT_S = 600;
 const EXEC_GRACE_MS = 5_000;
 const PROBE_TIMEOUT_S = 3;
 const EXTRA_PATH = "/usr/local/bin:/opt/homebrew/bin";
-const DOCKER_APP_BIN = "/Applications/Docker.app/Contents/Resources/bin";
 const STATUS_MARK = "__PRIMER_HTTP_STATUS__";
 const ALLOWED_ENDPOINTS = { "/api/chat": "POST", "/api/tags": "GET", "/api/version": "GET" };
 const LOCAL_HOSTS = new Set(["127.0.0.1:11434", "localhost:11434"]);
@@ -36,8 +35,6 @@ export function curlCommand({ path, method }, timeoutSeconds = CURL_TIMEOUT_S) {
 }
 
 export const OLLAMA_CLI_COMMAND = `PATH="$PATH:${EXTRA_PATH}" command -v ollama || test -d /Applications/Ollama.app`;
-export const DOCKER_COMMAND = `PATH="$PATH:${EXTRA_PATH}:${DOCKER_APP_BIN}" docker info --format '{{.ServerVersion}}'`;
-export const DOCKER_CLI_COMMAND = `PATH="$PATH:${EXTRA_PATH}:${DOCKER_APP_BIN}" command -v docker`;
 
 export function parseCurlResult({ stdout = "", stderr = "", code }) {
   if (code !== 0) {
@@ -61,7 +58,7 @@ export async function ollamaRequest(desktop, { path, method, body = "" }, timeou
 }
 
 export async function probeLocal(desktop, model) {
-  const probe = { ollama: { running: false, installed: false, version: "" }, model: { name: model, pulled: false }, docker: { state: "missing", version: "" } };
+  const probe = { ollama: { running: false, installed: false, version: "" }, model: { name: model, pulled: false } };
   try {
     const version = await ollamaRequest(desktop, { path: "/api/version", method: "GET" }, PROBE_TIMEOUT_S);
     probe.ollama.running = version.status === 200;
@@ -81,17 +78,17 @@ export async function probeLocal(desktop, model) {
     const cli = await desktop.childProcess.exec(OLLAMA_CLI_COMMAND, { timeout: 5_000 }).catch(() => ({ code: 1 }));
     probe.ollama.installed = cli.code === 0;
   }
-  const docker = await desktop.childProcess.exec(DOCKER_COMMAND, { timeout: 10_000 }).catch(() => ({ code: 1, stdout: "" }));
-  if (docker.code === 0 && docker.stdout.trim()) probe.docker = { state: "running", version: docker.stdout.trim() };
-  else {
-    const cli = await desktop.childProcess.exec(DOCKER_CLI_COMMAND, { timeout: 5_000 }).catch(() => ({ code: 1 }));
-    probe.docker = { state: cli.code === 0 ? "stopped" : "missing", version: "" };
-  }
   return probe;
 }
 
+function withTag(name) {
+  return String(name).split("/").pop().includes(":") ? String(name) : `${name}:latest`;
+}
+
 export function hasModel(tags, model) {
-  return Array.isArray(tags?.models) && tags.models.some((entry) => entry?.name === model || entry?.model === model);
+  const wanted = withTag(model);
+  const listed = (Array.isArray(tags?.models) ? tags.models : []).flatMap((entry) => [entry?.name, entry?.model]).filter(Boolean);
+  return listed.some((name) => withTag(name) === wanted);
 }
 
 export function localReady(probe) {
@@ -106,7 +103,6 @@ export function setupSteps(probe, platform = "darwin") {
       steps.push({
         problem: "Ollama isn't installed. It's the free program that runs the course's model on your computer.",
         command: mac ? "brew install ollama" : undefined,
-        link: "https://ollama.com/download",
         hint: mac ? "No Homebrew? Download Ollama from ollama.com/download instead." : "Download it from ollama.com/download.",
       });
     }
@@ -120,16 +116,6 @@ export function setupSteps(probe, platform = "darwin") {
     steps.push({
       problem: `The model ${probe.model.name} isn't downloaded yet${MODEL_DOWNLOAD_SIZES[probe.model.name] ? ` (${MODEL_DOWNLOAD_SIZES[probe.model.name]})` : ""}.`,
       command: `ollama pull ${probe.model.name}`,
-    });
-  }
-  if (probe.docker.state !== "running") {
-    steps.push({
-      optional: true,
-      problem:
-        probe.docker.state === "stopped"
-          ? "Docker is installed but not running. Lessons 0 to 3 don't need it; later lessons run commands in a Docker sandbox."
-          : "Docker isn't installed. Lessons 0 to 3 don't need it; later lessons run commands in a Docker sandbox.",
-      link: "https://docs.docker.com/get-started/get-docker/",
     });
   }
   return steps;

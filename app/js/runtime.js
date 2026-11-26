@@ -34,7 +34,6 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
     live: "checking",
     reason: "",
     sample: null,
-    permissions: null,
     desktop: null,
     installState: "unavailable",
     desktopChecked: false,
@@ -63,10 +62,6 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
     use("sample").then((sample) => {
       state.sample = sample;
       setLive(sample ? "ready" : "off", sample ? "" : "no-runtime");
-    });
-    use("permissions").then((permissions) => {
-      state.permissions = permissions;
-      notify();
     });
     Promise.all([use("db"), use("user")]).then(async ([db, user]) => {
       const userId = user ? await user.id().catch(() => null) : null;
@@ -112,16 +107,6 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
     return outcome;
   }
 
-  async function managePermissions() {
-    if (!state.permissions?.manage) return false;
-    try {
-      await state.permissions.manage();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   const api = {
     get live() {
       return state.live;
@@ -138,14 +123,10 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
     get desktopChecked() {
       return state.desktopChecked;
     },
-    get canManagePermissions() {
-      return Boolean(state.permissions?.manage);
-    },
     progress,
     boot,
     askClaude,
     install,
-    managePermissions,
     subscribe(fn) {
       listeners.add(fn);
       return () => listeners.delete(fn);

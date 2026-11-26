@@ -6,6 +6,7 @@ import { LESSON_FILES } from "./files.js";
 import { COMING_NEXT, LESSONS } from "./lessons.js";
 
 const DEFAULT_MODEL = "qwen3.5:9b";
+const CONFIG_FILE = "harness/config.ts";
 
 let shared = null;
 
@@ -13,9 +14,11 @@ function sharedState(ctx) {
   if (shared) return shared;
   const codeStore = createCodeStore();
   codeStore.load().catch(() => {});
-  const sources = createSourceController({
-    runtime: ctx.runtime,
-    getModel: () => readConfigValue(codeStore.get("harness/config.ts"), "MODEL") ?? DEFAULT_MODEL,
+  const getModel = () => readConfigValue(codeStore.get(CONFIG_FILE), "MODEL") ?? DEFAULT_MODEL;
+  const sources = createSourceController({ runtime: ctx.runtime, getModel });
+  codeStore.subscribe((path) => {
+    const missingModelChanged = sources.local === "checked" && !sources.localIsReady && sources.probe.model.name !== getModel();
+    if (path === CONFIG_FILE && missingModelChanged) sources.refresh();
   });
   shared = { codeStore, sources };
   return shared;
@@ -29,7 +32,6 @@ export default {
   lessons: LESSONS.map((lesson, index) => ({ ...lesson, markdown: LESSON_FILES[index] })),
   comingNext: COMING_NEXT,
   firstComingNumber: LESSONS.length,
-  wide: true,
   renderLesson(lesson, ctx) {
     const { codeStore, sources } = sharedState(ctx);
     return renderHarnessLesson({ lesson, ctx, course: { codeStore, sources, replyMarkdown: ctx.replyMarkdown } });

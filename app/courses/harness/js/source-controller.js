@@ -62,7 +62,7 @@ export function createSourceController({ runtime, getModel }) {
         state.probe = null;
         return;
       }
-      state.local = "probing";
+      if (state.local !== "checked") state.local = "probing";
       notify();
       state.probe = await probeLocal(desktop, getModel());
       state.local = "checked";

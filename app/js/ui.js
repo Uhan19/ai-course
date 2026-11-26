@@ -42,7 +42,7 @@ export function commandLine(command) {
 
 const loading = new Map();
 
-export function loadScript(url, globalName) {
+export function loadScript(url, globalName, integrity) {
   if (globalThis[globalName]) return Promise.resolve(globalThis[globalName]);
   if (!loading.has(url)) {
     loading.set(
@@ -50,6 +50,8 @@ export function loadScript(url, globalName) {
       new Promise((resolve, reject) => {
         const script = document.createElement("script");
         script.src = url;
+        script.integrity = integrity;
+        script.crossOrigin = "anonymous";
         script.async = true;
         script.onload = () => (globalThis[globalName] ? resolve(globalThis[globalName]) : reject(new Error(`${url} loaded without ${globalName}`)));
         script.onerror = () => {

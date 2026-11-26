@@ -20,13 +20,12 @@ The harness lessons run a small TypeScript harness against a model and show ever
 Learners can edit the harness files in the **Code** tab; their next chat message runs the edited code.
 
 - **Local first.** In the installed desktop app, with the "full-access" permission, the page reaches the learner's own Ollama (`qwen3.5:9b` by default) through the desktop child process API.
-  It runs only fixed commands: `curl` to Ollama's chat, tags and version endpoints at `127.0.0.1:11434`, and Ollama and Docker presence checks.
+  It runs only fixed commands: `curl` to Ollama's chat, tags and version endpoints at `127.0.0.1:11434`, and a check that Ollama is installed.
   When something is missing, the page shows the setup steps, such as `brew install ollama` and `ollama pull qwen3.5:9b`.
 - **Claude as fallback.** Without the installed app, without the permission, without a ready local model, or when the learner picks it, calls go to Claude through the learner's own account (the `sample` capability).
   The page translates the harness's Ollama-shaped request for Claude and translates the reply back, and the x-ray says so at each step.
 - **Isolation.** Harness code, including learner edits, is compiled in the browser with TypeScript and runs in a Web Worker.
   The worker has no desktop access; its `fetch` reaches only those Ollama endpoints through the page.
-- Docker is detected for the later lessons that run commands in a sandbox; lessons 0 to 3 don't need it.
 
 ## Layout
 

@@ -95,7 +95,6 @@
     db,
     user: { id: async () => "u_local_preview", isOwner: async () => true, canEdit: async () => true, can: async () => true },
     desktop,
-    permissions: { manage: async () => {}, state: async () => "granted" },
   };
   window.claude = {
     use: async (name) => {

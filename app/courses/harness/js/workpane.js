@@ -34,6 +34,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
   let busy = false;
   let controller = null;
   let disposed = false;
+  let turnSource = null;
 
   const canSend = () => !busy && sources.source !== "none";
   const syncControls = () => {
@@ -67,10 +68,9 @@ export function renderWorkPane({ lesson, ctx, course }) {
 
   async function handleFetch(request) {
     const endpoint = ollamaEndpoint(request.url, request.method);
-    if (sources.source === "local") {
+    if (turnSource === "local") {
       return ollamaRequest(sources.desktop, { ...endpoint, body: request.body ?? "" });
     }
-    if (sources.source !== "claude") throw new TypeError("fetch failed: no model is available on this page.");
     if (endpoint.path !== "/api/chat") {
       return { status: 501, body: JSON.stringify({ error: `${endpoint.path} only works with a local Ollama model, not the Claude fallback.` }) };
     }
@@ -81,10 +81,10 @@ export function renderWorkPane({ lesson, ctx, course }) {
       return { status: 400, body: JSON.stringify({ error: "The request body is not valid JSON." }) };
     }
     const { input, json } = toClaudeRequest(body);
-    xray.note(fallbackNote(sources), { capability: "sample", input, options: { modelTier: CLAUDE_TIER, cache: false, json } }, "The page's request to Claude");
+    xray.note(fallbackNote(sources), { capability: "sample", input, options: { modelTier: CLAUDE_TIER, cache: false, json } }, "Request JSON the page sent to Claude");
     try {
       const value = await ctx.runtime.askClaude(input, { json, signal: controller?.signal, modelTier: CLAUDE_TIER });
-      xray.note("Claude answered. The page turns the reply into the same JSON shape Ollama returns, so the harness code doesn't change.", json ? value : { text: value.text }, "Claude's reply, as the page received it");
+      xray.note("Claude answered. The page turns the reply into the same JSON shape Ollama returns, so the harness code doesn't change.", json ? value : { text: value.text }, "Reply JSON from Claude, as the page received it");
       return { status: 200, body: JSON.stringify(fromClaudeReply(json ? value : value.text, { json, idPrefix: `call_${Date.now().toString(36)}` })) };
     } catch (error) {
       throw new TypeError(`Claude fallback failed: ${errorCopy(error)}`);
@@ -92,10 +92,10 @@ export function renderWorkPane({ lesson, ctx, course }) {
   }
 
   async function explainFailure(detail) {
-    if (sources.source === "local" || sources.local === "checked") {
+    if (!disposed && turnSource === "local") {
       await sources.refresh().catch(() => {});
       if (sources.local === "checked" && !localReady(sources.probe)) {
-        const step = sources.steps.find((s) => !s.optional);
+        const [step] = sources.steps;
         if (step) return { message: step.problem, command: step.command, detail };
       }
     }
@@ -106,6 +106,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
     const trimmed = text.trim();
     if (!trimmed || !canSend()) return;
     busy = true;
+    turnSource = sources.source;
     controller = new AbortController();
     syncControls();
     input.value = "";
@@ -118,7 +119,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
       const active = await ensureSession().catch((error) => {
         throw Object.assign(new Error(error.message), { loadError: true });
       });
-      xray.startTurn(trimmed, sources.source);
+      xray.startTurn(trimmed, turnSource);
       const result = await active.send(trimmed);
       if (result.type === "reply") {
         appendBubble("assistant", result.text);
@@ -130,7 +131,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
       }
     } catch (error) {
       failure = error.loadError ? `Your harness code didn't load: ${error.message}` : String(error.message ?? error);
-      if (!xray.turn) xray.startTurn(trimmed, sources.source);
+      if (!xray.turn) xray.startTurn(trimmed, turnSource);
       appendError(failure);
     } finally {
       pending.stop();
@@ -306,7 +307,7 @@ function renderModelPanel(sources, runtime) {
   } else if (local === "no-desktop") {
     parts.push(h("p", { class: "model-note" }, "The local model works in the installed desktop app. Open this page in the Claude desktop app and choose Install as app."));
   } else if (local === "needs-permission") {
-    parts.push(h("p", { class: "model-note" }, "To reach Ollama on your computer, the app needs permission to run local programs. It only runs fixed commands: requests to Ollama's local API, and checks for Ollama and Docker."));
+    parts.push(h("p", { class: "model-note" }, "To reach Ollama on your computer, the app needs permission to run local programs. It only runs fixed commands: requests to Ollama's local API, and a check that Ollama is installed."));
     actions.append(button("Allow local model", () => sources.refresh({ ask: true }), true));
   } else if (local === "denied") {
     parts.push(h("p", { class: "model-note" }, "Running local programs is turned off for this app, so it can't reach Ollama."));
@@ -317,8 +318,6 @@ function renderModelPanel(sources, runtime) {
   } else if (local === "unsupported") {
     parts.push(h("p", { class: "model-note" }, "The local model setup supports macOS and Linux for now."));
   } else if (local === "checked" && !sources.localIsReady) {
-    const steps = sources.steps.filter((s) => !s.optional);
-    const later = sources.steps.filter((s) => s.optional);
     parts.push(
       h(
         "details",
@@ -327,9 +326,8 @@ function renderModelPanel(sources, runtime) {
         h(
           "ol",
           { class: "setup-steps" },
-          steps.map((s) => h("li", {}, h("p", {}, s.problem), s.command ? commandLine(s.command) : null, s.hint ? h("p", { class: "model-note" }, s.hint) : null)),
+          sources.steps.map((s) => h("li", {}, h("p", {}, s.problem), s.command ? commandLine(s.command) : null, s.hint ? h("p", { class: "model-note" }, s.hint) : null)),
         ),
-        later.map((s) => h("p", { class: "model-note" }, s.problem, " ", h("a", { href: s.link, target: "_blank", rel: "noopener" }, "Get Docker"))),
       ),
     );
     actions.append(button("Check again", () => sources.refresh()));

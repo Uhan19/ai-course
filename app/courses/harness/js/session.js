@@ -2,9 +2,10 @@ import { loadScript } from "../../../js/ui.js";
 import { buildWorkerSource, transpileFiles } from "./bundle.js";
 
 export const TYPESCRIPT_URL = "https://cdnjs.cloudflare.com/ajax/libs/typescript/5.9.3/typescript.min.js";
+const TYPESCRIPT_INTEGRITY = "sha512-AexnMUNTmJMG6xQ9e40doFD2a7u1uYMNpda4hGXSw3gh3fMbNtGOfIHfbVCZvA8Gv55uCW5s5iPJk8yIPZAO8Q==";
 
 export function loadTypeScript() {
-  return loadScript(TYPESCRIPT_URL, "ts");
+  return loadScript(TYPESCRIPT_URL, "ts", TYPESCRIPT_INTEGRITY);
 }
 
 export async function createSession({ files, entry, onStep, onFetch }) {
