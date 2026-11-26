@@ -274,7 +274,7 @@ function renderModelPanel(sources, runtime) {
     return [status("checking", "Checking for a model…")];
   }
   if (source === "local") {
-    parts.push(status("ok", h("strong", {}, probe.model.name), ` on your computer, through Ollama ${probe.ollama.version}.`));
+    parts.push(status("ok", h("strong", {}, sources.model), ` on your computer, through Ollama ${probe.ollama.version}.`));
     const actions = h("div", { class: "model-actions" });
     if (sources.claudeAvailable) actions.append(button("Use Claude instead", () => sources.prefer("claude")));
     actions.append(button("Check again", () => sources.refresh()));

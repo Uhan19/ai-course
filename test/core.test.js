@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { Marked } from "marked";
 import { Deck, cardsVerdict, keyConceptDeck, scoreCards } from "../app/js/core/cards.js";
-import { escapeHtml, renderFlow } from "../app/js/core/markdown.js";
+import { createReplyMarkdown, escapeHtml, renderFlow } from "../app/js/core/markdown.js";
 import { LESSONS } from "../app/courses/harness/lessons.js";
 import {
   emptyProgress,
@@ -111,6 +112,17 @@ test("flow blocks become rows of boxes and labelled arrows, escaped", () => {
   assert.match(html, /<span class="flow-label">message<\/span>/);
   assert.match(html, /<span class="flow-label">&#60;b&#62;<\/span>/);
   assert.equal(escapeHtml(`<a href="x">'&'</a>`), "&#60;a href=&#34;x&#34;&#62;&#39;&#38;&#39;&#60;/a&#62;");
+});
+
+test("model replies keep web and mail links but never script links, images or raw HTML", () => {
+  const reply = createReplyMarkdown(Marked);
+  const render = (text) => reply.parse(text, { async: false });
+  assert.equal(render("[docs](https://ollama.com/download)"), '<p><a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer">docs</a></p>\n');
+  assert.equal(render("[write](mailto:sam@example.com)"), '<p><a href="mailto:sam@example.com" target="_blank" rel="noopener noreferrer">write</a></p>\n');
+  assert.equal(render("[details](javascript:alert(document.domain))"), "<p>details</p>\n");
+  assert.equal(render("[**bold**](data:text/html,x)"), "<p><strong>bold</strong></p>\n");
+  assert.equal(render("![chart](https://host.example/leak?q=secret)"), "<p>chart</p>\n");
+  assert.equal(render("<img src=x onerror=alert(1)>"), "&#60;img src=x onerror=alert(1)&#62;");
 });
 
 test("progress records visits, quizzes and best scores", () => {

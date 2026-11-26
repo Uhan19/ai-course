@@ -17,8 +17,7 @@ function sharedState(ctx) {
   const getModel = () => readConfigValue(codeStore.get(CONFIG_FILE), "MODEL") ?? DEFAULT_MODEL;
   const sources = createSourceController({ runtime: ctx.runtime, getModel });
   codeStore.subscribe((path) => {
-    const missingModelChanged = sources.local === "checked" && !sources.localIsReady && sources.probe.model.name !== getModel();
-    if (path === CONFIG_FILE && missingModelChanged) sources.refresh();
+    if (path === CONFIG_FILE) sources.modelChanged();
   });
   shared = { codeStore, sources };
   return shared;

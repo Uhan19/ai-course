@@ -1,4 +1,5 @@
 const ARROW = /\s*-(?:\[([^\]]*)\])?->\s*/;
+const SAFE_LINK = /^(?:https?:|mailto:)/i;
 
 export function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -36,6 +37,13 @@ export function createReplyMarkdown(Marked) {
   return new Marked({
     renderer: {
       html({ text }) {
+        return escapeHtml(text);
+      },
+      link({ href, tokens }) {
+        const label = this.parser.parseInline(tokens);
+        return SAFE_LINK.test(href) ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+      },
+      image({ text }) {
         return escapeHtml(text);
       },
     },

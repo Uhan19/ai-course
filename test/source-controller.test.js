@@ -44,4 +44,47 @@ describe("choosing the model source", () => {
     assert.equal(sources.busy, false);
     assert.equal(sources.source, "local");
   });
+
+  it("names a newly configured model but lets its first request reach Ollama", async () => {
+    const commands = [];
+    const exec = async (command) => {
+      commands.push(command);
+      if (command.includes("/api/version")) return ollamaReply('{"version":"0.40.16"}');
+      if (command.includes("/api/tags")) return ollamaReply('{"models":[{"name":"qwen3.5:9b"}]}');
+      return { stdout: "", stderr: "", code: 1 };
+    };
+    let model = "qwen3.5:9b";
+    const sources = createSourceController({ runtime: installedApp(exec), getModel: () => model });
+    await flush();
+    const probes = commands.length;
+    let redraws = 0;
+    sources.subscribe(() => (redraws += 1));
+
+    model = "no-such-model";
+    sources.modelChanged();
+    await flush();
+    assert.equal(sources.model, "no-such-model");
+    assert.equal(sources.source, "local");
+    assert.equal(commands.length, probes);
+    assert.ok(redraws > 0);
+  });
+
+  it("checks again when the learner fixes a model that was missing", async () => {
+    const exec = async (command) => {
+      if (command.includes("/api/version")) return ollamaReply('{"version":"0.40.16"}');
+      if (command.includes("/api/tags")) return ollamaReply('{"models":[{"name":"qwen3.5:9b"}]}');
+      return { stdout: "", stderr: "", code: 1 };
+    };
+    let model = "no-such-model";
+    const sources = createSourceController({ runtime: installedApp(exec), getModel: () => model });
+    await flush();
+    assert.equal(sources.localIsReady, false);
+    assert.equal(sources.steps[0].command, "ollama pull no-such-model");
+
+    model = "qwen3.5:9b";
+    sources.modelChanged();
+    await flush();
+    assert.equal(sources.localIsReady, true);
+    assert.equal(sources.source, "local");
+  });
 });

@@ -7,6 +7,7 @@
     "preview": "node dev/serve.mjs"
   },
   "devDependencies": {
+    "marked": "18.2.1",
     "typescript": "5.9.3"
   }
 }

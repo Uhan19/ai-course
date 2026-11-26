@@ -57,7 +57,7 @@ The shell, home page, progress and flashcards need no changes.
 ## Develop
 
 ```sh
-npm install                       # TypeScript, used by the tests
+npm install                       # TypeScript and marked, used by the tests
 npm test                          # unit tests; no Artifact runtime or Ollama needed
 npm run preview                   # http://127.0.0.1:8765/
 node dev/e2e-local.mjs 3          # drive lesson 3 against your local Ollama

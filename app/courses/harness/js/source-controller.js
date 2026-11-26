@@ -110,7 +110,14 @@ export function createSourceController({ runtime, getModel }) {
     get desktop() {
       return runtime.desktop;
     },
+    get model() {
+      return getModel();
+    },
     refresh,
+    modelChanged() {
+      if (state.local === "checked" && !localReady(state.probe) && state.probe.model.name !== getModel()) refresh();
+      else notify();
+    },
     prefer(value) {
       state.preference = value === "claude" ? "claude" : "auto";
       writePreference(state.preference);
