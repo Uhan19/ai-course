@@ -56,7 +56,7 @@ With `?fake=ready`, a scripted fake answers every call and keeps progress in mem
 The artifact is published privately with the Claude Code `Artifact` tool.
 Always republish to the same artifact so the shared link keeps working:
 
-- Artifact: _not published yet_
+- Artifact: https://claude.ai/artifact/NgziwPNw4FsEtb9ezTcZ9K
 - Page: `app/index.html`
 - Supporting files: every file under `app/js/`, published at the same relative path (for example `js/app.js`).
 - Capabilities:
