@@ -109,6 +109,7 @@ describe("reaching Ollama through the desktop app", () => {
       ["brew services start ollama", "ollama pull qwen3.5:9b", null],
     );
     assert.equal(steps.at(-1).optional, true);
+    assert.equal(steps[1].problem, "The model qwen3.5:9b isn't downloaded yet (about 7.6 GB).");
   });
 
   it("explains a missing Ollama install, per platform", () => {
@@ -118,6 +119,7 @@ describe("reaching Ollama through the desktop app", () => {
       ["brew install ollama", "brew services start ollama", "ollama pull m"],
     );
     assert.equal(setupSteps(probe, "linux")[0].command, undefined);
+    assert.equal(setupSteps(probe).at(-1).problem, "The model m isn't downloaded yet.");
     assert.match(setupSteps(probe, "linux")[0].hint, /ollama\.com\/download/);
   });
 

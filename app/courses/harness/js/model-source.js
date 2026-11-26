@@ -7,7 +7,7 @@ const DOCKER_APP_BIN = "/Applications/Docker.app/Contents/Resources/bin";
 const STATUS_MARK = "__PRIMER_HTTP_STATUS__";
 const ALLOWED_ENDPOINTS = { "/api/chat": "POST", "/api/tags": "GET", "/api/version": "GET" };
 const LOCAL_HOSTS = new Set(["127.0.0.1:11434", "localhost:11434"]);
-export const MODEL_DOWNLOAD_SIZE = "about 7.6 GB";
+export const MODEL_DOWNLOAD_SIZES = { "qwen3.5:9b": "about 7.6 GB" };
 export const FALLBACK_MODEL_LABEL = "claude (fallback through your Claude account)";
 
 export function ollamaEndpoint(url, method = "GET") {
@@ -118,7 +118,7 @@ export function setupSteps(probe, platform = "darwin") {
   }
   if (!probe.model.pulled) {
     steps.push({
-      problem: `The model ${probe.model.name} isn't downloaded yet (${MODEL_DOWNLOAD_SIZE}).`,
+      problem: `The model ${probe.model.name} isn't downloaded yet${MODEL_DOWNLOAD_SIZES[probe.model.name] ? ` (${MODEL_DOWNLOAD_SIZES[probe.model.name]})` : ""}.`,
       command: `ollama pull ${probe.model.name}`,
     });
   }

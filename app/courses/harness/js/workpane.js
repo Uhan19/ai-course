@@ -302,7 +302,7 @@ function renderModelPanel(sources, runtime) {
   } else if (local === "no-desktop") {
     parts.push(h("p", { class: "model-note" }, "The local model works in the installed desktop app. Open this page in the Claude desktop app and choose Install as app."));
   } else if (local === "needs-permission") {
-    parts.push(h("p", { class: "model-note" }, "To reach Ollama on your computer, the app needs permission to run local programs. It only runs Ollama, Docker checks, and one fixed request to Ollama's local API."));
+    parts.push(h("p", { class: "model-note" }, "To reach Ollama on your computer, the app needs permission to run local programs. It only runs fixed commands: requests to Ollama's local API, and checks for Ollama and Docker."));
     actions.append(button("Allow local model", () => sources.refresh({ ask: true }), true));
   } else if (local === "denied") {
     parts.push(h("p", { class: "model-note" }, "Running local programs is turned off for this app, so it can't reach Ollama."));

@@ -1,64 +1,81 @@
-# AI, Under the Hood
+# Primer
 
-An interactive course on how AI assistants work, for anyone who uses AI at work.
-It is published as a Claude artifact, so learners open one link and can install it as a desktop app from the Claude desktop app.
+Primer is a small learning app for short, hands-on courses on any subject.
+It is published as one Claude artifact, so learners open a link, or install it as a desktop app from the Claude desktop app.
+The name lives in one place: the `<title>` at the top of `app/index.html`.
 
-Each lesson has a short plain-language explanation, a live playground, an x-ray of every request sent to Claude and every reply, optional "For engineers" sections, and a short quiz.
+## Courses
 
-| # | Lesson |
-|---|--------|
-| 1 | What a model is: tokens, the context window, why answers vary |
-| 2 | Prompting: the same request asked three ways |
-| 3 | Chat is stateless: the whole history is resent every turn |
-| 4 | Tools and agents: an editable agent loop |
-| 5 | Context and memory: standing instructions, running out of room, summarizing |
-| 6 | Grounding: answers with sources from a pasted document |
-| 7 | Checking answers: simple evals, with Claude grading Claude |
-| 8 | Real harnesses compared: Claude Code, Codex, Hermes Agent |
-| 9 | Safety and cost: permissions, prompt injection, what usage costs |
+| Course | Folder | Lessons |
+|---|---|---|
+| Build an agent harness | `app/courses/harness/` | 0 to 3, ported from `Uhan19/harness-course` at `4ab3ac6`. Lessons 4 to 8 follow once they land on its `main`. |
 
-## How it works
+Each lesson has its text, a live **Try it** pane where it applies, and flashcards.
+Marking each flashcard "I knew it" or "Not yet" finishes the lesson, and the result counts as the lesson's score.
+Progress is saved privately per learner and shows on the home page.
 
-- Live calls use the artifact runtime's `sample` capability, so every call runs on the learner's own Claude account.
-  No API key is embedded anywhere.
-- Progress and quiz results are saved with the `db` capability under each learner's private `data/users/<id>/progress` document, using the id from the `user` capability.
-- The `desktop` capability lets learners install the course as an app.
-  The page asks for no desktop permissions (no files, terminal or processes).
-- When a capability is missing (a viewer outside the organization, a signed-out viewer, a declined permission), every lesson still reads fine and the live parts show a short note instead.
+## The harness course and its model
+
+The harness lessons run a small TypeScript harness against a model and show every request and reply in an x-ray.
+Learners can edit the harness files in the **Code** tab; their next chat message runs the edited code.
+
+- **Local first.** In the installed desktop app, with the "full-access" permission, the page reaches the learner's own Ollama (`qwen3.5:9b` by default) through the desktop child process API.
+  It runs only fixed commands: `curl` to Ollama's chat, tags and version endpoints at `127.0.0.1:11434`, and Ollama and Docker presence checks.
+  When something is missing, the page shows the setup steps, such as `brew install ollama` and `ollama pull qwen3.5:9b`.
+- **Claude as fallback.** Without the installed app, without the permission, without a ready local model, or when the learner picks it, calls go to Claude through the learner's own account (the `sample` capability).
+  The page translates the harness's Ollama-shaped request for Claude and translates the reply back, and the x-ray says so at each step.
+- **Isolation.** Harness code, including learner edits, is compiled in the browser with TypeScript and runs in a Web Worker.
+  The worker has no desktop access; its `fetch` reaches only those Ollama endpoints through the page.
+- Docker is detected for the later lessons that run commands in a sandbox; lessons 0 to 3 don't need it.
 
 ## Layout
 
 ```
-app/                 Everything that is published
-  index.html         The page: styles, shell, and the desktop manifest tag
-  js/app.js          Routing, home page, lesson frame
-  js/runtime.js      Capability wiring: model calls with x-ray, progress store
-  js/ui.js           DOM helpers, x-ray panel, quiz, playground pieces
-  js/icon.js         Desktop app icon
-  js/core/*.js       Pure logic with unit tests (tokens, x-ray, quiz, progress, ...)
-  js/lessons/*.js    One module per lesson
-dev/                 Local preview server and a fake Claude runtime
-test/                Unit tests (node:test)
+app/                      Everything that is published
+  index.html              Page: name, styles, shell, desktop permission manifest
+  js/app.js               Routing, home page, lesson frame
+  js/runtime.js           Capability wiring: Claude calls, desktop, install, progress store
+  js/flashcards.js        Lesson flashcards with saved scores, and the review deck
+  js/core/*.js            Pure logic: progress, flashcard decks, markdown flow diagrams
+  courses/index.js        The course registry
+  courses/harness/        Course 1: lesson text, harness files, and its own UI and adapters
+dev/serve.mjs             Local preview server
+dev/fake-claude.js        Scripted capabilities for the preview
+dev/e2e-local.mjs         Runs a harness lesson against your real local Ollama
+test/                     Unit tests (node:test)
 ```
+
+## Add a course
+
+1. Create `app/courses/<id>/course.js` exporting `{ id, title, summary, lessons, renderLesson(lesson, ctx) }`.
+   Each lesson needs an `id`, `title`, `summary` and optional `flashcards` (`{ front, back, keyConcept }`).
+   `ctx` gives the course `runtime`, `markdown`, `flashcards(lesson)`, `pager(lesson)`, `watch(fn)` and `onDispose(fn)`.
+2. Add it to `COURSES` in `app/courses/index.js`.
+3. Add its files to the publish list below.
+
+The shell, home page, progress and flashcards need no changes.
 
 ## Develop
 
 ```sh
-npm test          # unit tests, no Artifact runtime needed
-npm run preview   # http://localhost:8765/ ; add ?fake=ready or ?fake=declined
+npm install                       # TypeScript, used by the tests
+npm test                          # unit tests; no Artifact runtime or Ollama needed
+npm run preview                   # http://127.0.0.1:8765/
+node dev/e2e-local.mjs 3          # drive lesson 3 against your local Ollama
 ```
 
-Without `?fake`, the preview behaves like a viewer with no Claude runtime.
-With `?fake=ready`, a scripted fake answers every call and keeps progress in memory.
+Preview modes: no query string behaves like a viewer with no Claude runtime.
+`?fake=local` acts as the installed app with full access, sending its fixed commands to your real Ollama through the preview server.
+`?fake=local-ask` starts with the permission not yet granted, `?fake=fallback` uses scripted Claude replies, `?fake=declined` declines Claude, and `?fake=none` has neither.
 
 ## Publish and update
 
-The artifact is published privately with the Claude Code `Artifact` tool.
-Always republish to the same artifact so the shared link keeps working:
+Publish privately with the Claude Code `Artifact` tool, always to the same artifact so the shared link keeps working:
 
 - Artifact: https://claude.ai/artifact/NgziwPNw4FsEtb9ezTcZ9K
 - Page: `app/index.html`
-- Supporting files: every file under `app/js/`, published at the same relative path (for example `js/app.js`).
+- Supporting files: every other file under `app/`, at its path relative to `app/` (for example `js/app.js`, `courses/harness/lessons/00-what-is-a-harness.md`).
+  Publish `.ts` files with content type `text/plain` and `.md` files with `text/markdown`.
 - Capabilities:
 
 ```json
@@ -75,8 +92,8 @@ Always republish to the same artifact so the shared link keeps working:
 }
 ```
 
-To update: edit files under `app/`, run `npm test`, check the preview, then ask Claude Code to republish `app/index.html` with all `app/js/` files to the artifact URL above.
-Pass the capabilities only when they change; leaving them out keeps the stored ones.
+To update: edit files under `app/`, run `npm test`, check the preview, then republish `app/index.html` with all supporting files to the artifact above.
+Leave capabilities out when they don't change; the stored ones are kept.
+Remove a deleted file from the artifact by publishing its path as `null`.
 
-Every example, name and document in the course is invented.
-Lesson 8 and the pricing part of lesson 9 cite official sources with the date they were read; refresh them when updating those lessons.
+Every example in the courses is invented; nothing comes from a real company or person.
