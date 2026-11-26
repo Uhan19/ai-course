@@ -212,9 +212,9 @@ export const LESSONS = [
     usesSandbox: true,
     suggestions: [
       "What files are in the workspace?",
-      "Run hello.py and tell me what it printed.",
-      "Write a Python script primes.py that prints the first 10 primes, then run it.",
-      "Can you reach the internet from the sandbox? Try it with Python.",
+      { text: "Run hello.py and tell me what it printed.", needsRealSandbox: true },
+      { text: "Write a Python script primes.py that prints the first 10 primes, then run it.", needsRealSandbox: true },
+      { text: "Can you reach the internet from the sandbox? Try it with Python.", needsRealSandbox: true },
       "Run the command sleep 30 and tell me what happened.",
     ],
     chatHint: "The agent can list, read and write files and run commands, all inside a locked container.",
@@ -387,7 +387,7 @@ export const LESSONS = [
     suggestions: [
       "Which method does RFC 2324 add for saying when to stop pouring milk? Check rfc2324-coffee-pot.txt.",
       "Count exactly how many times the word coffee appears in rfc2324-coffee-pot.txt, in any case.",
-      "What is 2 to the power of 100? Work it out with Python.",
+      { text: "What is 2 to the power of 100? Work it out with Python.", needsRealSandbox: true },
     ],
     chatHint: "Pick a model, or all of them. With all, the same message goes to each model in turn and the x-ray compares them.",
     flashcards: [

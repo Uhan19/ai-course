@@ -83,7 +83,8 @@ The **Try it** pane says which one is missing and shows the commands that set it
 
 Until then the page **simulates** the sandbox.
 It keeps a copy of the workspace files in the page and answers simple commands itself: `ls`, `cat`, `echo`, `grep`, `wc`, `head`, `tail`, `mkdir`, `rm`, `touch` and `sleep`.
-Anything else, Python included, fails with exit code 127 and a message saying it needs the real sandbox.
+Anything else, Python included, fails with exit code 127 and a message saying it needs the real Docker sandbox in the installed app.
+While the sandbox is simulated, the suggestions that need Python say so.
 The x-ray marks every simulated step in yellow as **Simulated sandbox**, and nothing runs on your computer.
 The harness code is the same either way: only the page's side changes.
 
@@ -106,8 +107,8 @@ It shows the exact `docker` command, what the command printed, its exit code and
 
 Then try the other suggestions:
 
-- *"Write a Python script primes.py that prints the first 10 primes, then run it."* takes two tool calls: one to write, one to run. Open the write step to see the file content going in as input.
-- *"Can you reach the internet from the sandbox? Try it with Python."* The command fails, because the container has no network. Watch the model read the error.
+- *"Write a Python script primes.py that prints the first 10 primes, then run it."* takes two tool calls: one to write, one to run. Open the write step to see the file content going in as input. It needs the real sandbox, because the simulated one can't run Python.
+- *"Can you reach the internet from the sandbox? Try it with Python."* The command fails, because the container has no network. Watch the model read the error. It needs the real sandbox, because the simulated one can't run Python.
 - *"Run the command sleep 30 and tell me what happened."* After 10 seconds the harness kills the container, and the model gets a "Timed out" result.
 
 If Docker is not running, the **Try it** pane says so, shows the command that starts it, and simulates the sandbox until then.
@@ -118,6 +119,7 @@ If Docker is not running, the **Try it** pane says so, shows the command that st
 
 In `harness/04-sandbox.ts`, set `LIMITS.timeoutMs` to `2_000` in the **Code** tab.
 Ask *"Run: python3 -c 'import time; time.sleep(5); print(\"done\")'"*
+This one needs the real sandbox, because the simulated one can't run Python.
 
 <details>
 <summary>Show answer</summary>

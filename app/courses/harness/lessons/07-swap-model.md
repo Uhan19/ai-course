@@ -111,7 +111,7 @@ Send each suggestion with **All, one after the other** selected, and read the ta
 
 - *"Which method does RFC 2324 add for saying when to stop pouring milk?"* is one read and one answer. Do both quote the right section? (It is 2.1.4, the WHEN method.)
 - *"Count exactly how many times the word coffee appears…"* rewards a good plan. The right answer is 76; 79 means the model counted `coffeepot` too, and 77 means it hit the BusyBox bug.
-- *"What is 2 to the power of 100? Work it out with Python."* needs a command, so you approve it once per model.
+- *"What is 2 to the power of 100? Work it out with Python."* needs a command, so you approve it once per model. It needs the real sandbox, because the simulated one can't run Python.
 
 ## Exercises
 

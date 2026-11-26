@@ -34,7 +34,13 @@ export function renderWorkPane({ lesson, ctx, course }) {
 
   const input = h("textarea", { rows: "1", placeholder: "Message the harness…", "aria-label": "Message", id: `harness-message-${lesson.id}` });
   const sendButton = h("button", { type: "submit", class: "btn btn-primary" }, "Send");
-  const chips = lesson.suggestions.map((text) => h("button", { type: "button", class: "chip-btn", onclick: () => send(text) }, text));
+  const realSandboxNotes = [];
+  const chips = lesson.suggestions.map((entry) => {
+    const { text, needsRealSandbox } = typeof entry === "string" ? { text: entry } : entry;
+    const note = needsRealSandbox ? h("span", { class: "chip-note", hidden: true }, " · needs the real sandbox") : null;
+    if (note) realSandboxNotes.push(note);
+    return h("button", { type: "button", class: "chip-btn", onclick: () => send(text) }, text, note);
+  });
   const suggestions = h("div", { class: "suggestions" }, chips);
 
   const showEmptyChat = () => chatLog.replaceChildren(h("p", { class: "chat-empty" }, lesson.chatHint, " Try one of these, or type your own."));
@@ -57,6 +63,8 @@ export function renderWorkPane({ lesson, ctx, course }) {
     sendButton.disabled = !canSend();
     for (const chip of chips) chip.disabled = !canSend();
     for (const button of modelPanel.querySelectorAll("[data-needs-idle]")) button.disabled = busy;
+    const simulated = lesson.usesSandbox && sandbox.modeFor(sources.source).mode === "simulated";
+    for (const note of realSandboxNotes) note.hidden = !simulated;
   };
 
   function closeSessions() {
@@ -188,6 +196,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
     const models = chosenModels();
     const rows = [];
     try {
+      if (turnSource === "local" && models.some((model) => model && !isPulled(sources.probe, model))) await sources.refresh().catch(() => {});
       for (const model of models) {
         if (disposed) break;
         const row = await runTurn(trimmed, model, models.length > 1);
@@ -206,7 +215,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
   }
 
   async function runTurn(text, model, labelReplies) {
-    if (model && turnSource === "local" && !isPulled(sources.probe, model)) {
+    if (model && turnSource === "local" && sources.probe?.ollama.running && !isPulled(sources.probe, model)) {
       const step = pullStep(model);
       appendError(step.problem, step.command);
       return null;
@@ -501,10 +510,16 @@ function renderModelPanel(sources, runtime) {
   } else if (local === "no-desktop") {
     parts.push(h("p", { class: "model-note" }, "The local model works in the installed desktop app. Open this page in the Claude desktop app and choose Install as app."));
   } else if (local === "needs-permission") {
-    parts.push(h("p", { class: "model-note" }, "To reach Ollama on your computer, the app needs permission to run local programs. It only runs fixed commands: requests to Ollama's local API, and a check that Ollama is installed."));
+    parts.push(
+      h(
+        "p",
+        { class: "model-note" },
+        `To reach Ollama and run the Docker sandbox on your computer, the app needs permission to run local programs. It only runs fixed commands: requests to Ollama's local API, checks that Ollama and Docker are installed and running, and docker run with the sandbox's locks (and docker kill when a command runs too long). It also keeps the agent's files in ${WORKSPACE_LABEL}, and Reset files moves that folder to the Trash.`,
+      ),
+    );
     actions.append(button("Allow local model", () => sources.refresh({ ask: true }), true));
   } else if (local === "denied") {
-    parts.push(h("p", { class: "model-note" }, "Running local programs is turned off for this app, so it can't reach Ollama."));
+    parts.push(h("p", { class: "model-note" }, "Running local programs is turned off for this app, so it can't reach Ollama or run the Docker sandbox."));
     actions.append(button("Change permissions", () => sources.manageDesktopPermissions()));
   } else if (local === "unavailable") {
     parts.push(h("p", { class: "model-note" }, "The app can't run local programs right now. This needs the Claude desktop app signed in to the organization that published this course."));

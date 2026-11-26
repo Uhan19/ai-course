@@ -1,7 +1,9 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import * as lesson7 from "../app/courses/harness/harness/07-swap-model.ts";
 import { MODELS } from "../app/courses/harness/harness/config.ts";
+import { readConfigList } from "../app/courses/harness/js/model-source.js";
 import { installFakePage } from "./fake-desktop.js";
 import { installFakeModel, neverAsked, recordingXRay, text } from "./fake-model.js";
 
@@ -18,8 +20,9 @@ const model = (script) => {
 };
 
 describe("lesson 7: swap the model", () => {
-  it("offers a smaller and a larger model", () => {
-    assert.deepEqual(MODELS, ["qwen3.5:4b", "qwen3.5:9b"]);
+  it("offers in the page's picker exactly the models the harness accepts", async () => {
+    const configSource = await readFile(new URL("../app/courses/harness/harness/config.ts", import.meta.url), "utf8");
+    assert.deepEqual(readConfigList(configSource, "MODELS"), MODELS);
   });
 
   it("sends the same harness's requests to whichever model was chosen", async () => {

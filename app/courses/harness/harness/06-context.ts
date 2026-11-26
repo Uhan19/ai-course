@@ -19,8 +19,9 @@ export async function buildSystemPrompt(basePrompt: string, xray: XRay): Promise
   let notes: string;
   try {
     notes = (await readWorkspaceFile(NOTES_FILE)).trim();
-  } catch {
-    xray.note(`No ${NOTES_FILE} in the workspace, so the system prompt is just the harness's own instructions.`);
+  } catch (error) {
+    const reason = (error as { code?: string }).code === "ENOENT" ? `No ${NOTES_FILE} in the workspace.` : (error as Error).message;
+    xray.note(`${reason} The system prompt is just the harness's own instructions.`);
     return basePrompt;
   }
   xray.note(`Loaded ${NOTES_FILE} (${notes.length} characters) from the workspace into the system prompt, once for this conversation.`);

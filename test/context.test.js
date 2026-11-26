@@ -60,10 +60,12 @@ describe("lesson 6: the system prompt and project notes", () => {
     page.disk.set("/home/learner/.ssh/id_ed25519", { kind: "file", text: "secret" });
     page.disk.set(`${WORKSPACE}/AGENTS.md`, { kind: "link", target: "/home/learner/.ssh/id_ed25519" });
     const { requests } = model([say("Hello.", 100)]);
+    const { xray, steps } = recordingXRay();
 
-    await lesson6.createHarness().send("hi", recordingXRay().xray, neverAsked);
+    await lesson6.createHarness().send("hi", xray, neverAsked);
 
     assert.equal(requests[0].messages[0].content, SYSTEM_PROMPT);
+    assert.equal(steps[0].why, "AGENTS.md in the workspace is a link, so it isn't read. The system prompt is just the harness's own instructions.");
   });
 });
 

@@ -2,7 +2,7 @@ import { keepStart, WRITE_FILE_SCRIPT } from "./sandbox.js";
 
 const ROOT = "/workspace";
 const SUPPORTED = ["ls", "cat", "echo", "grep", "wc", "head", "tail", "mkdir", "rm", "touch", "sleep", "pwd", "cd", "id"];
-const NEEDS_DOCKER = `this command needs the real sandbox. The page is only simulating one, which knows ${SUPPORTED.join(", ")}.`;
+const NEEDS_DOCKER = `not available in the simulated sandbox. This command needs the real Docker sandbox, which runs with the local model in the installed app. The simulation only knows ${SUPPORTED.join(", ")}.`;
 const encoder = new TextEncoder();
 
 class Exit {

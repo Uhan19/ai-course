@@ -1,8 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { WRITE_FILE_SCRIPT } from "../app/courses/harness/js/sandbox.js";
+import { SANDBOX_TOOLS } from "../app/courses/harness/harness/04-tools.ts";
+import { sandboxRequest, WRITE_FILE_SCRIPT } from "../app/courses/harness/js/sandbox.js";
 import { createSimulatedWorkspace, parseScript } from "../app/courses/harness/js/simulated-sandbox.js";
 import { SEED } from "./fake-desktop.js";
+import { recordingXRay } from "./fake-model.js";
 
 function workspace() {
   const sim = createSimulatedWorkspace({ now: () => new Date("2026-11-26T09:30:00Z") });
@@ -57,7 +59,22 @@ describe("the simulated sandbox", () => {
     const { sh } = workspace();
     const result = await sh("python3 hello.py");
     assert.equal(result.exitCode, 127);
-    assert.match(result.stderr, /^sh: python3: this command needs the real sandbox/);
+    assert.match(result.stderr, /^sh: python3: not available in the simulated sandbox\. This command needs the real Docker sandbox, which runs with the local model in the installed app\./);
+  });
+
+  it("tells the model through run_command that Python needs the real Docker sandbox in the installed app", async () => {
+    const { sim } = workspace();
+    globalThis.coursePage = { runInSandbox: (raw) => sim.run(sandboxRequest(raw)) };
+    try {
+      const runCommand = SANDBOX_TOOLS.find((tool) => tool.name === "run_command");
+      const { xray, steps } = recordingXRay();
+      const result = await runCommand.run({ command: "python3 -c 'print(2 ** 100)'" }, xray);
+      assert.match(result, /^Exit code: 127\nErrors:\nsh: python3: not available in the simulated sandbox\. This command needs the real Docker sandbox, which runs with the local model in the installed app\./);
+      assert.equal(steps[0].data.simulated, true);
+      assert.match(steps[0].why, /^Simulated the command in this page, not in Docker\./);
+    } finally {
+      delete globalThis.coursePage;
+    }
   });
 
   it("cannot write outside the workspace", async () => {
