@@ -138,6 +138,7 @@ In a harness of your own, `dockerArgs` would be yours to edit, and deleting the 
 Here the page builds the command, so try the only way harness code can.
 In `harness/04-tools.ts`, change the command of `list_files` to `["--network", "host", "ls", "-la"]` in the **Code** tab.
 Ask *"What files are in the workspace?"*
+This one needs the real sandbox, because the simulated one has no Docker command to look at.
 
 <details>
 <summary>Show answer</summary>

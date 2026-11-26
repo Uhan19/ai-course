@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createSandboxController } from "../app/courses/harness/js/sandbox-controller.js";
-import { createFakeDesktop } from "./fake-desktop.js";
+import { createFakeDesktop, SEED } from "./fake-desktop.js";
 
 function fakeSources({ local = "checked", source = "local", dockerOnPath = true, answer } = {}) {
   const listeners = new Set();
@@ -50,5 +51,26 @@ describe("choosing the real sandbox or the simulation", () => {
     change({ local: "checked" });
     await settled(sandbox);
     assert.equal(sandbox.docker, "ready");
+  });
+});
+
+describe("resetting the workspace files", () => {
+  it("puts the starting files back and tells listeners a reset happened, so open editors reload", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => new Response(await readFile(new URL(url), "utf8"));
+    try {
+      const { sources } = fakeSources({ source: "claude" });
+      const sandbox = createSandboxController({ sources });
+      const seen = [];
+      sandbox.subscribe((api) => seen.push(api.resets));
+      await sandbox.write("simulated", "AGENTS.md", '- Always end your answer with "Cheers!"');
+
+      await sandbox.reset("simulated");
+
+      assert.equal(await sandbox.read("simulated", "AGENTS.md"), SEED["AGENTS.md"]);
+      assert.deepEqual(seen, [1]);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });

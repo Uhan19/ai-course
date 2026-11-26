@@ -136,13 +136,19 @@ export function decideSource({ preference = "auto", localIsReady = false, claude
   return "none";
 }
 
+const STRING_OR_COMMENT = /("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
+
+function withoutComments(source) {
+  return String(source ?? "").replace(STRING_OR_COMMENT, (match, string) => string ?? " ");
+}
+
 export function readConfigValue(source, name) {
-  const match = String(source ?? "").match(new RegExp(`export\\s+const\\s+${name}\\s*=\\s*["'\`]([^"'\`]+)["'\`]`));
+  const match = withoutComments(source).match(new RegExp(`export\\s+const\\s+${name}\\s*=\\s*["'\`]([^"'\`]+)["'\`]`));
   return match ? match[1] : null;
 }
 
 export function readConfigList(source, name) {
-  const match = String(source ?? "").match(new RegExp(`export\\s+const\\s+${name}\\s*(?::[^=]*)?=\\s*\\[([^\\]]*)\\]`));
+  const match = withoutComments(source).match(new RegExp(`export\\s+const\\s+${name}\\s*(?::[^=]*)?=\\s*\\[([^\\]]*)\\]`));
   if (!match) return null;
   return [...match[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((item) => item[1]);
 }

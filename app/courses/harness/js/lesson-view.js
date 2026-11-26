@@ -148,10 +148,12 @@ function workspaceFile(name, course, ctx) {
   const reload = h("button", { type: "button", class: "btn btn-quiet btn-small" }, "Reload");
   const where = h("p", { class: "code-hint" });
   let mode = null;
+  let resets = 0;
 
   const fit = () => (editor.rows = Math.min(Math.max(editor.value.split("\n").length + 1, 6), 40));
   const describe = () => {
     mode = sandbox.modeFor(sources.source).mode;
+    resets = sandbox.resets;
     where.textContent =
       mode === "docker"
         ? `The live copy in ${WORKSPACE_LABEL} that the sandbox and the harness read. Saving writes it straight to that folder.`
@@ -183,7 +185,7 @@ function workspaceFile(name, course, ctx) {
   reload.addEventListener("click", load);
   editor.addEventListener("input", fit);
   sandbox.activate();
-  const reloadIfMoved = () => mode !== sandbox.modeFor(sources.source).mode && load();
+  const reloadIfMoved = () => (mode !== sandbox.modeFor(sources.source).mode || resets !== sandbox.resets) && load();
   ctx.onDispose(sandbox.subscribe(reloadIfMoved));
   ctx.onDispose(sources.subscribe(reloadIfMoved));
   load();

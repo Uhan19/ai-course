@@ -27,7 +27,7 @@ const NOT_READY = {
 
 export function createSandboxController({ sources }) {
   const listeners = new Set();
-  const state = { docker: "idle", version: "", binary: null, workspace: null, error: "" };
+  const state = { docker: "idle", version: "", binary: null, workspace: null, error: "", resets: 0 };
   const simulated = createSimulatedWorkspace();
   let simulatedSeeded = false;
   let seed = null;
@@ -100,6 +100,9 @@ export function createSandboxController({ sources }) {
     get canUseDocker() {
       return canUseDocker();
     },
+    get resets() {
+      return state.resets;
+    },
     get steps() {
       return dockerSetupSteps({ state: state.docker }, sources.platform);
     },
@@ -135,6 +138,7 @@ export function createSandboxController({ sources }) {
         simulated.seed(files);
         simulatedSeeded = true;
       }
+      state.resets += 1;
       notify();
     },
     async openFolder() {

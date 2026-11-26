@@ -209,4 +209,21 @@ describe("reading the model list from config.ts", () => {
     assert.deepEqual(readConfigList("export const MODELS: string[] = ['a', 'b', ];", "MODELS"), ["a", "b"]);
     assert.equal(readConfigList("export const MODEL = 'a';", "MODELS"), null);
   });
+
+  it("skips models that are commented out, as TypeScript does", () => {
+    const config = [
+      'export const OLLAMA_URL = "http://127.0.0.1:11434";',
+      '// export const MODEL = "qwen3.5:4b";',
+      'export const MODEL = "qwen3.5:9b";',
+      "export const MODELS = [",
+      '  "qwen3.5:4b",',
+      '  // Doesn\'t support tools: "gemma3:1b",',
+      '  /* "qwen3.5:2b", */',
+      '  "qwen3.5:9b",',
+      "];",
+    ].join("\n");
+    assert.deepEqual(readConfigList(config, "MODELS"), ["qwen3.5:4b", "qwen3.5:9b"]);
+    assert.equal(readConfigValue(config, "MODEL"), "qwen3.5:9b");
+    assert.equal(readConfigValue(config, "OLLAMA_URL"), "http://127.0.0.1:11434");
+  });
 });
