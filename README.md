@@ -28,7 +28,7 @@ Learners can edit the harness files in the **Code** tab; their next chat message
   Harness code only names the command to run inside the container; it can lower the timeout and output limit but never raise them or change a flag.
   The page creates the workspace folder with the files in `workspace-seed/` the first time, and **Reset files** moves it to the Trash and puts them back.
   When Docker is missing or stopped, or the image isn't pulled, the page shows the setup steps, such as `brew install --cask docker-desktop`, `open -a Docker` and `docker pull python:3.13-alpine`.
-- **The simulated sandbox.** Without the local model, without the permission, without Docker, or with Claude as the model, the page simulates the sandbox instead: a copy of the workspace files in the page and a small stand-in for `ls`, `cat`, `echo`, `grep`, `wc`, `head`, `tail`, `mkdir`, `rm`, `touch` and `sleep`.
+- **The simulated sandbox.** Without the local model, without the permission, without Docker, or with Claude as the model, the page simulates the sandbox instead: a copy of the workspace files in the page and a small stand-in for the simple commands listed in `SUPPORTED` in `app/courses/harness/js/simulated-sandbox.js`, such as `ls`, `cat` and `grep`.
   Any other command, Python included, exits with code 127 and a message that it needs the real Docker sandbox in the installed app, and the suggestions that need Python say so while the sandbox is simulated.
   Every simulated step is labelled **Simulated sandbox** in the x-ray, and nothing runs on the learner's computer.
 - **Isolation.** Harness code, including learner edits, is compiled in the browser with TypeScript and runs in a Web Worker.
@@ -39,7 +39,7 @@ Learners can edit the harness files in the **Code** tab; their next chat message
   - `command -v docker`, with the usual Docker install folders added to `PATH`, to find Docker.
   - `docker info --format {{.ServerVersion}}` to see whether Docker is running, and `docker image inspect --format {{.Id}} python:3.13-alpine` to see whether the image is pulled.
   - `docker run` with the locks above, then the command the harness asked for, and `docker kill harness-sandbox-<id>` when that command passes its timeout.
-  - File reads and writes only inside `~/harness-course-workspace`, and moving that folder to the Trash on **Reset files**.
+  - File reads and writes only inside `~/harness-course-workspace`, opening that folder on **Open folder**, and moving it to the Trash on **Reset files**.
 
 ## Layout
 

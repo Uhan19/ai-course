@@ -82,7 +82,7 @@ The real sandbox needs three things: the installed app with the local model, per
 The **Try it** pane says which one is missing and shows the commands that set it up.
 
 Until then the page **simulates** the sandbox.
-It keeps a copy of the workspace files in the page and answers simple commands itself: `ls`, `cat`, `echo`, `grep`, `wc`, `head`, `tail`, `mkdir`, `rm`, `touch` and `sleep`.
+It keeps a copy of the workspace files in the page and answers simple commands itself: `ls`, `cat`, `echo`, `grep`, `wc`, `head`, `tail`, `mkdir`, `rm`, `touch`, `sleep`, `pwd`, `cd` and `id`.
 Anything else, Python included, fails with exit code 127 and a message saying it needs the real Docker sandbox in the installed app.
 While the sandbox is simulated, the suggestions that need Python say so.
 The x-ray marks every simulated step in yellow as **Simulated sandbox**, and nothing runs on your computer.
