@@ -1,17 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { estimateTokens, illustrateTokens, shareOfWindow } from "../app/js/core/tokens.js";
-import {
-  describeError,
-  describeRequest,
-  describeResponse,
-  errorCopy,
-  inputStats,
-  requestRecord,
-  responseRecord,
-  errorRecord,
-} from "../app/js/core/xray.js";
-import { scoreQuiz, quizVerdict } from "../app/js/core/quiz.js";
+import { Deck, cardsVerdict, keyConceptDeck, scoreCards } from "../app/js/core/cards.js";
+import { escapeHtml, renderFlow } from "../app/js/core/markdown.js";
+import { LESSONS } from "../app/courses/harness/lessons.js";
 import {
   emptyProgress,
   lessonStatus,
@@ -23,85 +14,103 @@ import {
   recordQuiz,
 } from "../app/js/core/progress.js";
 
-test("estimateTokens uses the documented characters-per-token ratio", () => {
-  assert.equal(estimateTokens(""), 0);
-  assert.equal(estimateTokens("abcde"), 2);
-  assert.equal(estimateTokens("a"), 1);
-  assert.equal(estimateTokens("é".repeat(10)), 4);
+function lesson(id, flashcards) {
+  return { id, title: `Lesson ${id}`, flashcards };
+}
+
+function sequence(...values) {
+  return () => values.shift() ?? 0;
+}
+
+test("key concept deck collects only key-concept cards, in lesson order, tagged with their lesson", () => {
+  const deck = keyConceptDeck([
+    lesson(0, [
+      { front: "A", back: "a", keyConcept: true },
+      { front: "B", back: "b" },
+    ]),
+    lesson(1, [{ front: "C", back: "c", keyConcept: true }]),
+    { id: 2, title: "No cards" },
+  ]);
+  assert.deepEqual(deck, [
+    { front: "A", back: "a", keyConcept: true, lessonId: 0, lessonTitle: "Lesson 0" },
+    { front: "C", back: "c", keyConcept: true, lessonId: 1, lessonTitle: "Lesson 1" },
+  ]);
 });
 
-test("illustrateTokens keeps every character and splits long words", () => {
-  const text = "Our team offsite is on Thursday, 2026!";
-  const pieces = illustrateTokens(text);
-  assert.equal(pieces.join(""), text);
-  assert.ok(pieces.includes(" Thu"));
-  assert.ok(pieces.includes(" 202"));
-  assert.ok(pieces.includes(","));
+test("every harness lesson has cards with a question, an answer and at least one key concept", () => {
+  for (const { id, flashcards } of LESSONS) {
+    assert.ok(flashcards.length > 0, `lesson ${id}`);
+    assert.ok(flashcards.some((card) => card.keyConcept), `lesson ${id}`);
+    for (const card of flashcards) {
+      assert.notEqual(card.front.trim(), "", `lesson ${id}`);
+      assert.notEqual(card.back.trim(), "", `lesson ${id}`);
+    }
+  }
 });
 
-test("shareOfWindow clamps to 0..1", () => {
-  assert.equal(shareOfWindow(500_000), 0.5);
-  assert.equal(shareOfWindow(5_000_000), 1);
-  assert.equal(shareOfWindow(-1), 0);
+test("deck starts on the first card with the answer hidden", () => {
+  const deck = new Deck(["a", "b", "c"]);
+  assert.deepEqual([deck.current, deck.position, deck.size, deck.revealed], ["a", 1, 3, false]);
+  assert.deepEqual([deck.isFirst, deck.isLast], [true, false]);
 });
 
-test("requestRecord keeps what is sent and drops callbacks", () => {
-  const signal = new AbortController().signal;
-  const record = requestRecord([{ role: "user", content: "hi" }], {
-    modelTier: "quick",
-    cache: false,
-    signal,
-    onText: () => {},
-    tools: [{ name: "clock", description: "Time", execute: () => 1 }],
-  });
-  assert.deepEqual(record, {
-    capability: "sample",
-    input: [{ role: "user", content: "hi" }],
-    options: { modelTier: "quick", cache: false, tools: [{ name: "clock", description: "Time" }] },
-  });
-  assert.equal(requestRecord("hi").options, undefined);
+test("deck flips, and hides the answer again when moving to another card", () => {
+  const deck = new Deck(["a", "b"]);
+  deck.flip();
+  assert.equal(deck.revealed, true);
+  deck.next();
+  assert.deepEqual([deck.current, deck.position, deck.revealed], ["b", 2, false]);
+  deck.flip();
+  deck.previous();
+  assert.deepEqual([deck.current, deck.revealed], ["a", false]);
 });
 
-test("inputStats and describeRequest summarise the request", () => {
-  const turns = [
-    { role: "user", content: "Hello there" },
-    { role: "assistant", content: "Hi!" },
-    { role: "user", content: "What's my name?" },
-  ];
-  const stats = inputStats(turns);
-  assert.equal(stats.messages, 3);
-  assert.equal(stats.chars, 29);
-  assert.equal(describeRequest("Hello", "Because."), "Sent 1 message (about 2 tokens) to Claude. Because.");
-  assert.match(describeRequest(turns), /^Sent 3 messages \(about 12 tokens\)/);
+test("deck stays put at either end", () => {
+  const deck = new Deck(["a", "b"]);
+  deck.previous();
+  assert.equal(deck.current, "a");
+  deck.next();
+  deck.flip();
+  deck.next();
+  assert.deepEqual([deck.current, deck.isLast, deck.revealed], ["b", true, true]);
 });
 
-test("describeResponse and records", () => {
-  assert.equal(describeResponse({ text: "one two three" }, 1530), "Claude replied with 3 words in 1.5 s.");
-  assert.match(describeResponse({ text: "x", truncated: true }, 1000), /cut off/);
-  assert.deepEqual(responseRecord({ text: "a", truncated: false, modelTierApplied: "quick" }), {
-    text: "a",
-    truncated: false,
-    modelTierApplied: "quick",
-  });
-  assert.deepEqual(errorRecord({ code: "refused", message: "no" }), { code: "refused", message: "no" });
+test("deck shuffles into a new order of the same cards and starts again from the first", () => {
+  const deck = new Deck(["a", "b", "c", "d"]);
+  deck.next();
+  deck.flip();
+  deck.shuffle(sequence(0, 0, 0));
+  const seen = [deck.current];
+  assert.deepEqual([deck.position, deck.revealed], [1, false]);
+  while (!deck.isLast) {
+    deck.next();
+    seen.push(deck.current);
+  }
+  assert.deepEqual(seen, ["b", "c", "d", "a"]);
 });
 
-test("errorCopy distinguishes usage limits from rate limits", () => {
-  assert.match(errorCopy({ code: "rate_limited" }), /Too many/);
-  assert.match(errorCopy({ code: "rate_limited", reason: "usage_limit" }), /usage limit/);
-  assert.match(errorCopy({ code: "something_new" }), /couldn't be reached/);
-  assert.match(describeError({ code: "not_granted" }), /code: not_granted/);
+test("deck handles no cards", () => {
+  const deck = new Deck([]);
+  assert.deepEqual([deck.current, deck.size, deck.isFirst, deck.isLast], [undefined, 0, true, true]);
 });
 
-test("scoreQuiz counts correct answers and completeness", () => {
-  const questions = [{ answer: 1 }, { answer: 0 }, { answer: 2 }];
-  const partial = scoreQuiz(questions, [1, null, 2]);
-  assert.equal(partial.score, 2);
-  assert.equal(partial.complete, false);
-  const full = scoreQuiz(questions, [1, 0, 0]);
-  assert.deepEqual([full.score, full.total, full.complete], [2, 3, true]);
-  assert.equal(quizVerdict({ score: 3, total: 3 }), "All correct.");
-  assert.match(quizVerdict({ score: 0, total: 3 }), /another look/);
+test("scoreCards counts known cards and completeness", () => {
+  assert.deepEqual(scoreCards([true, null, false], 3), { score: 1, total: 3, answered: 2, complete: false, answers: [true, null, false] });
+  const done = scoreCards([true, true, false, "x"], 3);
+  assert.deepEqual([done.score, done.complete, done.answers], [2, true, [true, true, false]]);
+  assert.equal(scoreCards([], 0).complete, false);
+  assert.equal(cardsVerdict(scoreCards([true, true], 2)), "You knew every card.");
+  assert.match(cardsVerdict(scoreCards([true, false], 2)), /1 of 2/);
+  assert.equal(cardsVerdict(scoreCards([true], 2)), "");
+});
+
+test("flow blocks become rows of boxes and labelled arrows, escaped", () => {
+  const html = renderFlow("You -[message]-> Harness -> Model\nModel -[<b>]-> Tool");
+  assert.equal((html.match(/flow-row/g) ?? []).length, 2);
+  assert.match(html, /<span class="flow-node flow-you">You<\/span>/);
+  assert.match(html, /<span class="flow-label">message<\/span>/);
+  assert.match(html, /<span class="flow-label">&#60;b&#62;<\/span>/);
+  assert.equal(escapeHtml(`<a href="x">'&'</a>`), "&#60;a href=&#34;x&#34;&#62;&#39;&#38;&#39;&#60;/a&#62;");
 });
 
 test("progress records visits, quizzes and best scores", () => {
@@ -117,6 +126,9 @@ test("progress records visits, quizzes and best scores", () => {
   assert.deepEqual(progressSummary(p, ["l1", "l2"]), { done: 1, total: 2, percent: 50 });
   assert.equal(nextLessonId(p, ["l1", "l2"]), "l2");
   assert.equal(nextLessonId(recordQuiz(p, "l2", { score: 0, total: 1, answers: [0] }), ["l1", "l2"]), null);
+  const partial = recordQuiz(p, "l3", { score: 1, total: 2, answers: [true, null] }, 500, false);
+  assert.equal(lessonStatus(partial, "l3"), "started");
+  assert.equal(partial.lessons.l3.quiz.best, 0);
 });
 
 test("normalizeProgress tolerates junk", () => {

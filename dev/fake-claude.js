@@ -1,59 +1,47 @@
 (() => {
-  const mode = window.__FAKE_MODE__ || "ready";
+  const mode = window.__FAKE_MODE__ || "fallback";
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  let replyCount = 0;
+  const installed = mode === "local" || mode === "local-ask";
 
-  function lastUserText(input) {
-    if (typeof input === "string") return input;
-    for (let i = input.length - 1; i >= 0; i -= 1) if (input[i].role === "user") return input[i].content;
-    return "";
-  }
+  const allText = (input) => (typeof input === "string" ? input : input.map((t) => t.content).join("\n"));
+  const lastUser = (input) => (typeof input === "string" ? input : [...input].reverse().find((t) => t.role === "user")?.content ?? "");
 
-  function allText(input) {
-    return typeof input === "string" ? input : input.map((t) => t.content).join("\n");
-  }
-
-  function scriptedReply(input) {
+  function scripted(input, json) {
     const text = allText(input);
-    const last = lastUserText(input);
-    replyCount += 1;
-    if (/Reply with exactly one JSON object/.test(text)) {
-      const results = (text.match(/Result of /g) || []).length;
-      if (/post_to_board/.test(text) && /BOARD/.test(text) && results === 0) {
-        return '{"type":"tool","tool":"post_to_board","input":{"message":"Office closed tomorrow"}}';
+    if (json) {
+      if (!/Result of the tool/.test(text)) {
+        return {
+          content: "",
+          tool_calls: [
+            { name: "get_current_time", arguments: { timezone: "Asia/Tokyo" } },
+            { name: "calculator", arguments: { expression: "(80 * 15) / 100" } },
+          ],
+        };
       }
-      if (results === 0) return '{"type":"tool","tool":"calculator","input":{"expression":"2340 * 0.17"}}';
-      if (results === 1 && /clock/.test(last + text) && /time/i.test(text)) return '{"type":"tool","tool":"clock","input":{}}';
-      return '{"type":"answer","text":"(Scripted reply) 17% of 2,340 is 397.8."}';
+      return { content: "(Scripted fallback reply) It's evening in Tokyo, and 15% of 80 is 12.", tool_calls: [] };
     }
-    if (/Reply with only a JSON/i.test(text)) {
-      return JSON.stringify({ scores: [], note: "scripted" });
-    }
-    if (/name/i.test(last) && /Sam/.test(text)) return "(Scripted reply) Your name is Sam, and 8 people are coming.";
-    return `(Scripted reply ${replyCount}) This is a fake answer from the local preview. It echoes the start of your prompt: “${last.slice(0, 60)}”.`;
+    if (/what is my name/i.test(lastUser(input)) && /Sam/.test(text)) return "(Scripted fallback reply) Your name is Sam.";
+    return `(Scripted fallback reply) You said: “${lastUser(input).slice(0, 80)}”.`;
   }
 
   async function sample(input, options = {}) {
     if (mode === "declined") throw { code: "not_granted", message: "The viewer declined." };
-    if (mode === "limited") throw { code: "rate_limited", message: "Slow down." };
-    await wait(250);
+    await wait(200);
     if (options.signal?.aborted) throw { code: "cancelled", message: "cancelled" };
-    const text = scriptedReply(input);
+    const text = scripted(input, false);
     options.onText?.({ text, delta: text });
     return { text, truncated: false, modelTierApplied: options.modelTier || "default" };
   }
-  sample.json = async (input, options) => {
-    const { text } = await sample(input, options);
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw { code: "invalid_json", message: "not json", text };
-    }
+  sample.json = async (input, options = {}) => {
+    if (mode === "declined") throw { code: "not_granted", message: "The viewer declined." };
+    await wait(200);
+    return scripted(input, true);
   };
-  sample.limits = async () => ({ maxPromptBytes: 262144, tools: { maxCount: 8 } });
+  sample.limits = async () => ({ maxPromptBytes: 262144 });
 
   const docs = new Map();
   const listeners = new Map();
+  const snap = (path) => ({ exists: docs.has(path), data: () => docs.get(path), metadata: { fromCache: false, hasPendingWrites: false } });
   const db = {
     doc(path) {
       return {
@@ -66,31 +54,52 @@
           (listeners.get(path) || []).forEach((fn) => fn(snap(path)));
         },
         onSnapshot(next) {
-          const list = listeners.get(path) || [];
-          list.push(next);
-          listeners.set(path, list);
+          listeners.set(path, [...(listeners.get(path) || []), next]);
           setTimeout(() => next(snap(path)), 100);
           return () => {};
         },
       };
     },
   };
-  const snap = (path) => ({
-    exists: docs.has(path),
-    data: () => docs.get(path),
-    metadata: { fromCache: false, hasPendingWrites: false },
-  });
+
+  let fullAccess = mode === "local-ask" ? "prompt" : "granted";
+  const desktop = installed
+    ? {
+        install: { state: async () => "installed", request: async () => "installed" },
+        permissions: {
+          state: async (name) => (name === "full-access" ? fullAccess : "unavailable"),
+          request: async () => {
+            fullAccess = "granted";
+            return { "full-access": fullAccess };
+          },
+          manage: async () => {},
+        },
+        os: { platform: async () => "darwin", arch: async () => "arm64" },
+        app: { dock: { setIcon: async () => ({ written: false }) } },
+        childProcess: {
+          async exec(command, options = {}) {
+            const response = await fetch("/dev/exec", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ command, input: options.input ?? "", timeout: options.timeout }),
+            });
+            if (!response.ok) throw new Error(`EPERM: ${(await response.json()).error}`);
+            return response.json();
+          },
+        },
+      }
+    : { install: { state: async () => (mode === "none" ? "unavailable" : "available"), request: async () => "installed" } };
 
   const caps = {
-    sample,
+    sample: mode === "none" ? null : sample,
     db,
     user: { id: async () => "u_local_preview", isOwner: async () => true, canEdit: async () => true, can: async () => true },
-    desktop: { install: { state: async () => "available", request: async () => "installed" } },
+    desktop,
     permissions: { manage: async () => {}, state: async () => "granted" },
   };
   window.claude = {
     use: async (name) => {
-      await wait(50);
+      await wait(40);
       return caps[name] ?? null;
     },
   };

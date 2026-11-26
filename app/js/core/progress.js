@@ -21,15 +21,16 @@ export function markVisited(progress, lessonId, now = Date.now()) {
   return withLesson(progress, lessonId, { ...current, visitedAt: now });
 }
 
-export function recordQuiz(progress, lessonId, { score, total, answers }, now = Date.now()) {
+export function recordQuiz(progress, lessonId, { score, total, answers }, now = Date.now(), complete = true) {
   const current = progress.lessons[lessonId] ?? {};
-  const best = Math.max(score, current.quiz?.best ?? 0);
-  return withLesson(progress, lessonId, {
+  const best = complete ? Math.max(score, current.quiz?.best ?? 0) : current.quiz?.best ?? 0;
+  const entry = {
     ...current,
     visitedAt: current.visitedAt ?? now,
-    completedAt: current.completedAt ?? now,
     quiz: { score, total, best, answers: [...answers], takenAt: now },
-  });
+  };
+  if (complete) entry.completedAt = current.completedAt ?? now;
+  return withLesson(progress, lessonId, entry);
 }
 
 function withLesson(progress, lessonId, entry) {

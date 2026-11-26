@@ -1,14 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createProgressStore, createRuntime } from "../app/js/runtime.js";
+import { createProgressStore, createRuntime, errorCopy } from "../app/js/runtime.js";
 import { markVisited } from "../app/js/core/progress.js";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
-
-function fakeXray() {
-  const steps = [];
-  return { steps, add: (s) => steps.push(s) };
-}
 
 function fakeClaude(caps) {
   return { use: async (name) => caps[name] ?? null };
@@ -20,22 +15,27 @@ test("runtime without window.claude turns live examples off", async () => {
   assert.equal(rt.live, "off");
   assert.equal(rt.reason, "no-runtime");
   assert.equal(rt.progress.mode, "unsaved");
-  await assert.rejects(rt.callModel("hi"), { code: "not_ready" });
+  await assert.rejects(rt.askClaude("hi"), { code: "not_ready" });
+  assert.equal(rt.desktopChecked, true);
 });
 
-test("callModel records request and response in the x-ray", async () => {
-  const sample = async (input) => ({ text: `echo ${input}`, truncated: false, modelTierApplied: "quick" });
-  const rt = createRuntime(fakeClaude({ sample }), { now: (() => { let t = 0; return () => (t += 1000); })() });
+test("askClaude passes the input through without caching", async () => {
+  const seen = [];
+  const sample = async (input, options) => {
+    seen.push(options);
+    return { text: `echo ${input}`, truncated: false };
+  };
+  sample.json = async (input, options) => {
+    seen.push(options);
+    return { content: "ok" };
+  };
+  const rt = createRuntime(fakeClaude({ sample }));
   rt.boot();
   await flush();
   assert.equal(rt.live, "ready");
-  const xray = fakeXray();
-  const result = await rt.callModel("hello", { modelTier: "quick" }, { xray, why: "Testing." });
-  assert.equal(result.text, "echo hello");
-  assert.deepEqual(xray.steps.map((s) => s.kind), ["request", "response"]);
-  assert.deepEqual(xray.steps[0].data, { capability: "sample", input: "hello", options: { modelTier: "quick" } });
-  assert.match(xray.steps[0].summary, /Testing\.$/);
-  assert.match(xray.steps[1].summary, /2 words in 1\.0 s/);
+  assert.equal((await rt.askClaude("hello")).text, "echo hello");
+  assert.deepEqual(await rt.askClaude([{ role: "user", content: "x" }], { json: true }), { content: "ok" });
+  assert.deepEqual(seen.map((o) => [o.modelTier, o.cache]), [["quick", false], ["quick", false]]);
 });
 
 test("not_granted turns live examples off and never retries", async () => {
@@ -47,13 +47,11 @@ test("not_granted turns live examples off and never retries", async () => {
   const rt = createRuntime(fakeClaude({ sample }));
   rt.boot();
   await flush();
-  const xray = fakeXray();
-  await assert.rejects(rt.callModel("x", {}, { xray }), { code: "not_granted" });
+  await assert.rejects(rt.askClaude("x"), { code: "not_granted" });
   assert.equal(rt.live, "off");
   assert.equal(rt.reason, "not_granted");
-  await assert.rejects(rt.callModel("x"), { code: "not_ready" });
+  await assert.rejects(rt.askClaude("x"), { code: "not_ready" });
   assert.equal(calls, 1);
-  assert.deepEqual(xray.steps.map((s) => s.kind), ["request", "error"]);
 });
 
 test("rate_limited cools down live examples", async () => {
@@ -64,7 +62,7 @@ test("rate_limited cools down live examples", async () => {
   const rt = createRuntime(fakeClaude({ sample }), { timers: { setTimeout: (fn) => pending.push(fn), clearTimeout: () => {} } });
   rt.boot();
   await flush();
-  await assert.rejects(rt.callModel("x"), { code: "rate_limited" });
+  await assert.rejects(rt.askClaude("x"), { code: "rate_limited" });
   assert.equal(rt.live, "cooling");
   assert.equal(rt.reason, "usage_limit");
   pending.forEach((fn) => fn());
@@ -143,4 +141,22 @@ test("progress store goes read-only when the write is refused", async () => {
   assert.equal(store.mode, "readonly");
   store.update((p) => markVisited(p, "l2", 1));
   assert.equal(store.value.lessons.l2.visitedAt, 1);
+});
+
+test("errorCopy distinguishes usage limits from rate limits", () => {
+  assert.match(errorCopy({ code: "rate_limited" }), /Too many/);
+  assert.match(errorCopy({ code: "rate_limited", reason: "usage_limit" }), /usage limit/);
+  assert.match(errorCopy({ code: "something_new" }), /couldn't be reached/);
+});
+
+test("runtime reports the install state from desktop", async () => {
+  const desktop = { install: { state: async () => "available", request: async () => "installed" } };
+  const rt = createRuntime(fakeClaude({ desktop }));
+  rt.boot();
+  await flush();
+  await flush();
+  assert.equal(rt.installState, "available");
+  assert.equal(rt.desktopChecked, true);
+  assert.equal(await rt.install(), "installed");
+  assert.equal(rt.installState, "installed");
 });

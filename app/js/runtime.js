@@ -1,13 +1,29 @@
-import {
-  HIDE_CODES,
-  describeError,
-  describeRequest,
-  describeResponse,
-  errorRecord,
-  requestRecord,
-  responseRecord,
-} from "./core/xray.js";
 import { emptyProgress, mergeProgress, normalizeProgress, sameProgress } from "./core/progress.js";
+
+export const HIDE_CODES = new Set(["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"]);
+
+export const ERROR_COPY = {
+  not_granted: "Claude access wasn't allowed for this page, so Claude can't answer here.",
+  sampling_disabled: "Claude isn't available for this account here.",
+  not_declared: "This version of the page can't call Claude.",
+  capability_disabled: "Claude can't be reached from this view.",
+  capability_removed: "This Claude app is too old to call Claude from a page.",
+  rate_limited: "Too many requests to Claude right now. Wait a minute, then try again.",
+  usage_limit: "You've reached your Claude usage limit. Claude will answer again when it resets.",
+  session_expired: "Your Claude sign-in expired. Sign in again, then reload this page.",
+  refused: "Claude declined this request. Try asking for something different.",
+  empty_completion: "Claude sent back an empty answer. Try a simpler message.",
+  invalid_json: "Claude's answer wasn't in the format the page asked for. Try again.",
+  prompt_too_large: "The conversation is too long to send to Claude. Start a new conversation.",
+  invalid_request: "The page sent Claude a malformed request.",
+  cancelled: "Stopped.",
+  upstream_error: "Claude couldn't be reached just now. Try again in a moment.",
+};
+
+export function errorCopy(error) {
+  if (error?.code === "rate_limited" && error.reason === "usage_limit") return ERROR_COPY.usage_limit;
+  return ERROR_COPY[error?.code] ?? ERROR_COPY.upstream_error;
+}
 
 export const COOLDOWN_MS = 60_000;
 export const LOAD_TIMEOUT_MS = 10_000;
@@ -21,6 +37,7 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
     permissions: null,
     desktop: null,
     installState: "unavailable",
+    desktopChecked: false,
   };
   const progress = createProgressStore({ onChange: notify, timers });
 
@@ -37,6 +54,7 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
 
   async function boot() {
     if (typeof claude?.use !== "function") {
+      state.desktopChecked = true;
       setLive("off", "no-runtime");
       progress.start(null, null);
       return;
@@ -57,6 +75,7 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
     use("desktop").then(async (desktop) => {
       state.desktop = desktop;
       state.installState = desktop?.install ? await desktop.install.state().catch(() => "unavailable") : "unavailable";
+      state.desktopChecked = true;
       notify();
     });
   }
@@ -71,33 +90,15 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
     }
   }
 
-  async function callModel(input, options = {}, { xray, why = "", answerWhy = "", json = false } = {}) {
+  async function askClaude(input, { json = false, signal, modelTier = "quick" } = {}) {
     if (state.live !== "ready" || !state.sample) {
-      throw { code: "not_ready", message: "Live examples are not available right now." };
+      throw { code: "not_ready", message: "Claude isn't available on this page right now." };
     }
-    xray?.add({ kind: "request", summary: describeRequest(input, why), data: requestRecord(input, options) });
-    const started = now();
+    const options = { modelTier, signal, cache: false };
     try {
-      if (json) {
-        const value = await state.sample.json(input, options);
-        const text = JSON.stringify(value);
-        xray?.add({
-          kind: "response",
-          summary: describeResponse({ text: text.replace(/[{}[\]",:]/g, " ") }, now() - started, answerWhy),
-          data: { parsedJson: value },
-        });
-        return value;
-      }
-      const result = await state.sample(input, options);
-      xray?.add({
-        kind: "response",
-        summary: describeResponse(result, now() - started, answerWhy),
-        data: responseRecord(result),
-      });
-      return result;
+      return json ? await state.sample.json(input, options) : await state.sample(input, options);
     } catch (raw) {
       const error = normalizeError(raw);
-      xray?.add({ kind: "error", summary: describeError(error), data: errorRecord(error) });
       react(error);
       throw error;
     }
@@ -134,12 +135,15 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
     get desktop() {
       return state.desktop;
     },
+    get desktopChecked() {
+      return state.desktopChecked;
+    },
     get canManagePermissions() {
       return Boolean(state.permissions?.manage);
     },
     progress,
     boot,
-    callModel,
+    askClaude,
     install,
     managePermissions,
     subscribe(fn) {

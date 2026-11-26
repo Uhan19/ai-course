@@ -1,10 +1,12 @@
 import { createRuntime } from "./runtime.js";
-import { LESSONS } from "./lessons/index.js";
-import { h, quizSection } from "./ui.js";
+import { COURSES } from "../courses/index.js";
+import { h } from "./ui.js";
+import { lessonFlashcards, progressKey, reviewPage } from "./flashcards.js";
+import { createLessonMarkdown, createReplyMarkdown, escapeHtml } from "./core/markdown.js";
 import { lessonStatus, markVisited, nextLessonId, progressSummary } from "./core/progress.js";
 import { drawAppIcon } from "./icon.js";
 
-const LESSON_IDS = LESSONS.map((l) => l.id);
+const APP_NAME = document.title;
 const SAVE_COPY = {
   connecting: "Loading your progress…",
   saved: "Progress saved to your account",
@@ -15,15 +17,31 @@ const SAVE_COPY = {
   error: "Progress couldn't be saved",
 };
 
+class PlainMarked {
+  parse(text) {
+    return `<pre class="plain-text">${escapeHtml(text)}</pre>`;
+  }
+  parseInline(text) {
+    return escapeHtml(text);
+  }
+}
+
+const Marked = globalThis.marked?.Marked ?? PlainMarked;
+const markdown = createLessonMarkdown(Marked);
+const replyMarkdown = createReplyMarkdown(Marked);
 const runtime = createRuntime(window.claude);
 const view = document.getElementById("view");
 let current = null;
 let iconSet = false;
 
-function makeCtx() {
+const keysFor = (course) => course.lessons.map((lesson) => progressKey(course, lesson));
+
+function makeCtx(course) {
   const disposers = [];
   return {
     runtime,
+    markdown,
+    replyMarkdown,
     watch(fn) {
       fn(runtime);
       disposers.push(runtime.subscribe(fn));
@@ -34,179 +52,176 @@ function makeCtx() {
     dispose() {
       for (const fn of disposers.splice(0)) fn();
     },
+    flashcards(lesson) {
+      return lessonFlashcards({ course, lesson, ctx: this, markdown });
+    },
+    pager(lesson) {
+      return pager(course, lesson);
+    },
   };
 }
 
-function lessonFromHash() {
-  const match = location.hash.match(/^#lesson-(\d+)$/);
-  return match ? LESSONS.find((l) => l.n === Number(match[1])) ?? null : null;
+function route() {
+  const hash = decodeURIComponent(location.hash.slice(1));
+  for (const course of COURSES) {
+    if (hash === `${course.id}-cards`) return { course, page: "cards" };
+    if (hash.startsWith(`${course.id}-`)) {
+      const lesson = course.lessons.find((l) => `${course.id}-${l.id}` === hash);
+      if (lesson) return { course, lesson, page: "lesson" };
+    }
+  }
+  return { page: "home" };
 }
 
 function render() {
   current?.dispose();
-  current = makeCtx();
-  const lesson = lessonFromHash();
-  view.replaceChildren(lesson ? lessonView(lesson, current) : homeView(current));
-  window.scrollTo(0, 0);
-  if (lesson) {
-    runtime.progress.update((p) => markVisited(p, lesson.id));
-    view.querySelector("h1")?.focus({ preventScroll: true });
+  const target = route();
+  current = makeCtx(target.course);
+  document.body.dataset.page = target.page;
+  if (target.page === "lesson") {
+    view.replaceChildren(lessonView(target.course, target.lesson, current));
+    runtime.progress.update((p) => markVisited(p, progressKey(target.course, target.lesson)));
+  } else if (target.page === "cards") {
+    view.replaceChildren(reviewPage({ course: target.course, ctx: current, markdown }));
+  } else {
+    view.replaceChildren(homeView(current));
   }
+  window.scrollTo(0, 0);
+  requestAnimationFrame(() => view.querySelector("h1")?.focus({ preventScroll: true }));
 }
 
-function statusChip(progress, lesson) {
-  const status = lessonStatus(progress, lesson.id);
-  const quiz = progress.lessons[lesson.id]?.quiz;
-  const text = status === "done" ? (quiz ? `Done · ${quiz.score}/${quiz.total}` : "Done") : status === "started" ? "Started" : "Not started";
+function statusChip(progress, key) {
+  const status = lessonStatus(progress, key);
+  const quiz = progress.lessons[key]?.quiz;
+  const text = status === "done" ? (quiz ? `Done · ${quiz.score}/${quiz.total} cards` : "Done") : status === "started" ? "Started" : "Not started";
   return h("span", { class: `chip chip-${status}` }, text);
 }
 
-function homeView(ctx) {
+function courseSection(course, ctx) {
   const list = h("ol", { class: "lesson-list" });
-  const progressText = h("p", { class: "home-progress-text" });
+  const progressText = h("p", { class: "course-progress-text" });
   const bar = h("span", { class: "bar-fill" });
-  const resume = h("a", { class: "btn btn-primary", href: "#lesson-1" }, "Start lesson 1");
+  const resume = h("a", { class: "btn btn-primary" });
   ctx.watch((rt) => {
     const p = rt.progress.value;
-    const summary = progressSummary(p, LESSON_IDS);
+    const keys = keysFor(course);
+    const summary = progressSummary(p, keys);
     progressText.textContent = `${summary.done} of ${summary.total} lessons done`;
     bar.style.width = `${summary.percent}%`;
-    const nextId = nextLessonId(p, LESSON_IDS);
-    const next = LESSONS.find((l) => l.id === nextId);
+    const nextKey = nextLessonId(p, keys);
+    const next = course.lessons.find((lesson) => progressKey(course, lesson) === nextKey);
+    resume.hidden = !next;
     if (next) {
-      resume.hidden = false;
-      resume.href = `#lesson-${next.n}`;
-      resume.textContent = summary.done === 0 && lessonStatus(p, next.id) === "new" ? "Start lesson 1" : `Continue with lesson ${next.n}`;
-    } else resume.hidden = true;
+      resume.href = `#${course.id}-${next.id}`;
+      resume.textContent = lessonStatus(p, nextKey) === "new" && summary.done === 0 ? `Start with lesson ${next.id}` : `Continue with lesson ${next.id}`;
+    }
     list.replaceChildren(
-      ...LESSONS.map((lesson) =>
-        h(
+      ...course.lessons.map((lesson) => {
+        const key = progressKey(course, lesson);
+        return h(
           "li",
           { class: "lesson-row" },
           h(
             "a",
-            { href: `#lesson-${lesson.n}`, class: "lesson-link" },
-            h("span", { class: "lesson-num", "aria-hidden": "true" }, String(lesson.n)),
+            { href: `#${course.id}-${lesson.id}`, class: "lesson-link" },
+            h("span", { class: "lesson-num", "aria-hidden": "true" }, String(lesson.id)),
             h(
               "span",
               { class: "lesson-text" },
-              h("span", { class: "lesson-name" }, h("span", { class: "visually-hidden" }, `Lesson ${lesson.n}: `), lesson.title),
-              h("span", { class: "lesson-blurb" }, lesson.blurb),
+              h("span", { class: "lesson-name" }, h("span", { class: "visually-hidden" }, `Lesson ${lesson.id}: `), lesson.title),
+              h("span", { class: "lesson-blurb" }, lesson.summary),
             ),
-            h("span", { class: "lesson-meta" }, h("span", { class: "lesson-min" }, `${lesson.minutes} min`), statusChip(p, lesson)),
+            statusChip(p, key),
           ),
-        ),
-      ),
+        );
+      }),
     );
   });
+  return h(
+    "section",
+    { class: "course", "aria-labelledby": `course-${course.id}` },
+    h(
+      "header",
+      { class: "course-head" },
+      h("p", { class: "eyebrow" }, `Course · ${course.lessons.length} lessons so far`),
+      h("h2", { id: `course-${course.id}`, class: "course-title" }, course.title),
+      h("p", { class: "course-summary" }, course.summary),
+      h("div", { class: "course-progress" }, h("div", { class: "bar", role: "presentation" }, bar), progressText, resume),
+    ),
+    list,
+    h(
+      "div",
+      { class: "course-foot" },
+      h("a", { href: `#${course.id}-cards`, class: "btn btn-quiet" }, "Review the flashcards"),
+      course.comingNext?.length
+        ? h(
+            "div",
+            { class: "coming" },
+            h("h3", {}, "Coming next"),
+            h("ol", { start: String(course.firstComingNumber ?? 1) }, course.comingNext.map((item) => h("li", {}, item))),
+          )
+        : null,
+    ),
+  );
+}
 
+function homeView(ctx) {
   return h(
     "div",
     { class: "home" },
     h(
       "section",
       { class: "intro" },
-      h("p", { class: "eyebrow" }, "A hands-on course in nine short lessons"),
-      h("h1", { tabindex: "-1" }, "AI, Under the Hood"),
+      h("h1", { tabindex: "-1" }, APP_NAME),
       h(
         "p",
         { class: "lede" },
-        "See what really happens when you use an AI assistant at work. Each lesson is a few minutes of reading, a live example you can change, and an x-ray that shows exactly what goes to the model and what comes back.",
-      ),
-      h(
-        "dl",
-        { class: "how" },
-        h("div", {}, h("dt", {}, "Read"), h("dd", {}, "Plain words, short sentences. Each new term is explained once.")),
-        h("div", {}, h("dt", {}, "Try it"), h("dd", {}, "Live examples run on your own Claude account. Nothing to set up.")),
-        h("div", {}, h("dt", {}, "X-ray"), h("dd", {}, "See the exact request and reply behind every step.")),
-      ),
-      h(
-        "div",
-        { class: "home-progress" },
-        h("div", { class: "bar", role: "presentation" }, bar),
-        progressText,
-        resume,
+        "Short, hands-on courses you take at your own pace. Read a little, try it for real, and check yourself with flashcards. Your progress is saved privately to your account.",
       ),
     ),
-    h("section", { class: "lessons", "aria-label": "Lessons" }, h("h2", { class: "section-title" }, "Lessons"), list),
-    h(
-      "section",
-      { class: "home-notes" },
-      h("h2", { class: "section-title" }, "Good to know"),
-      h(
-        "ul",
-        {},
-        h("li", {}, "Live examples use your own Claude account and count toward your usage, like a normal chat. The first one asks your permission."),
-        h("li", {}, "Your progress and quiz results are private to your account. Nobody else can see them, including whoever shared this course with you."),
-        h("li", {}, "Sections marked “For engineers” go deeper into code and API details. Skip them freely."),
-      ),
-    ),
+    COURSES.map((course) => courseSection(course, ctx)),
   );
 }
 
-function sideNav(ctx, active) {
-  const list = h("ol", { class: "side-list" });
-  ctx.watch((rt) => {
-    list.replaceChildren(
-      ...LESSONS.map((lesson) =>
-        h(
-          "li",
-          {},
-          h(
-            "a",
-            {
-              href: `#lesson-${lesson.n}`,
-              class: `side-link status-${lessonStatus(rt.progress.value, lesson.id)}`,
-              "aria-current": lesson === active ? "page" : null,
-            },
-            h("span", { class: "side-n" }, String(lesson.n)),
-            h("span", {}, lesson.title),
-          ),
-        ),
-      ),
-    );
-  });
-  return h("nav", { class: "side", "aria-label": "All lessons" }, h("a", { href: "#", class: "side-home" }, "All lessons"), list);
+function pager(course, lesson) {
+  const index = course.lessons.indexOf(lesson);
+  const previous = course.lessons[index - 1];
+  const next = course.lessons[index + 1];
+  return h(
+    "nav",
+    { class: "pager", "aria-label": "Lesson navigation" },
+    previous ? h("a", { href: `#${course.id}-${previous.id}` }, `← ${previous.id}. ${previous.title}`) : h("span", {}),
+    next ? h("a", { href: `#${course.id}-${next.id}` }, `${next.id}. ${next.title} →`) : h("a", { href: "#" }, "Back to all courses →"),
+  );
 }
 
-function lessonView(lesson, ctx) {
-  const index = LESSONS.indexOf(lesson);
-  const prev = LESSONS[index - 1];
-  const next = LESSONS[index + 1];
-  const body = h("div", { class: "lesson-body" });
-  lesson.render(body, ctx);
+function lessonView(course, lesson, ctx) {
   return h(
     "div",
-    { class: "lesson-layout" },
-    sideNav(ctx, lesson),
+    { class: `lesson-page${course.wide ? " is-wide" : ""}` },
     h(
-      "article",
-      { class: "lesson" },
+      "nav",
+      { class: "crumbs", "aria-label": "Breadcrumb" },
+      h("a", { href: "#" }, APP_NAME),
+      h("span", { "aria-hidden": "true" }, "›"),
+      h("span", {}, course.title),
+      h("span", { "aria-hidden": "true" }, "›"),
       h(
-        "header",
-        { class: "lesson-head" },
-        h("a", { href: "#", class: "lesson-back" }, "← All lessons"),
-        h("p", { class: "eyebrow" }, `Lesson ${lesson.n} of ${LESSONS.length}`),
-        h("h1", { tabindex: "-1" }, lesson.title),
-        h("p", { class: "lesson-sub" }, lesson.blurb),
-        h("p", { class: "lesson-facts" }, `${lesson.minutes} min read · live example · ${lesson.quiz.length}-question quiz`),
-      ),
-      body,
-      quizSection(lesson, ctx),
-      h(
-        "nav",
-        { class: "pager", "aria-label": "Lesson navigation" },
-        prev ? h("a", { href: `#lesson-${prev.n}`, class: "pager-link" }, h("span", {}, "Previous"), prev.title) : h("span", {}),
-        next
-          ? h("a", { href: `#lesson-${next.n}`, class: "pager-link pager-next" }, h("span", {}, "Next"), next.title)
-          : h("a", { href: "#", class: "pager-link pager-next" }, h("span", {}, "Finished"), "Back to all lessons"),
+        "select",
+        {
+          class: "lesson-jump",
+          "aria-label": "Go to lesson",
+          onchange: (event) => (location.hash = `${course.id}-${event.target.value}`),
+        },
+        course.lessons.map((l) => h("option", { value: String(l.id), selected: l === lesson }, `Lesson ${l.id}: ${l.title}`)),
       ),
     ),
+    course.renderLesson(lesson, ctx),
   );
 }
 
 function wireTopBar() {
-  const progressPill = document.getElementById("top-progress");
+  document.getElementById("brand-name").textContent = APP_NAME;
   const saveState = document.getElementById("save-state");
   const install = document.getElementById("install");
   install.addEventListener("click", async () => {
@@ -216,8 +231,6 @@ function wireTopBar() {
     if (outcome === "installed") install.hidden = true;
   });
   const update = (rt) => {
-    const summary = progressSummary(rt.progress.value, LESSON_IDS);
-    progressPill.textContent = `${summary.done}/${summary.total} done`;
     saveState.textContent = SAVE_COPY[rt.progress.mode] ?? "";
     saveState.dataset.mode = rt.progress.mode;
     install.hidden = rt.installState !== "available";
