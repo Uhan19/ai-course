@@ -263,9 +263,9 @@ export function renderWorkPane({ lesson, ctx, course }) {
       "div",
       { class: "bubble bubble-approval", role: "group", "aria-label": "Permission request" },
       h("p", { class: "approval-title" }, "The model wants to ", h("strong", {}, String(request?.action ?? `use ${request?.tool}`))),
+      h("p", { class: "approval-rule" }, `Policy rule: ${String(request?.rule ?? "")}`),
       h("div", { class: "approval-buttons" }, approve, deny, status),
       h("pre", { class: "approval-args" }, JSON.stringify(request?.arguments ?? {}, null, 2)),
-      h("p", { class: "approval-rule" }, `Policy rule: ${String(request?.rule ?? "")}`),
     );
     const answer = (approved) => {
       approve.disabled = true;
@@ -469,11 +469,10 @@ function renderModelPanel(sources, runtime) {
     return [status("checking", "Checking for a model…")];
   }
   if (source === "local") {
-    parts.push(status("ok", h("strong", {}, sources.model), ` on your computer, through Ollama ${probe.ollama.version}.`));
     const actions = h("div", { class: "model-actions" });
     if (sources.claudeAvailable) actions.append(button("Use Claude instead", () => sources.prefer("claude")));
     actions.append(button("Check again", () => sources.refresh()));
-    parts.push(actions);
+    parts.push(h("div", { class: "model-row" }, status("ok", h("strong", {}, sources.model), ` on your computer, through Ollama ${probe.ollama.version}.`), actions));
     return parts;
   }
   if (source === "claude") {
@@ -553,7 +552,6 @@ function renderSandboxPanel({ sandbox, sources, resetFiles, resetting, resetLabe
     return [h("div", { class: "sandbox-panel" }, parts)];
   }
   if (mode.mode === "docker") {
-    parts.push(status("ok", "Sandbox: ", h("strong", {}, `Docker ${sandbox.version}`), " on your computer. The agent's files are in ", h("code", {}, WORKSPACE_LABEL), "."));
     actions.append(
       h(
         "button",
@@ -566,10 +564,10 @@ function renderSandboxPanel({ sandbox, sources, resetFiles, resetting, resetLabe
       ),
       reset,
     );
-    parts.push(actions);
+    parts.push(h("div", { class: "model-row" }, status("ok", "Sandbox: ", h("strong", {}, `Docker ${sandbox.version}`), ". The agent's files are in ", h("code", {}, WORKSPACE_LABEL), "."), actions));
     return [h("div", { class: "sandbox-panel" }, parts)];
   }
-  parts.push(status("sim", "Sandbox: ", h("strong", {}, "simulated in this page"), `, because ${mode.reason}. Only simple commands such as ls, cat, grep and wc work, and nothing runs on your computer.`));
+  const simulatedStatus = status("sim", "Sandbox: ", h("strong", {}, "simulated in this page"), `, because ${mode.reason}.`);
   const fixable = sources.source === "local" && sandbox.canUseDocker && ["missing", "stopped", "no-image"].includes(sandbox.docker);
   if (fixable) {
     parts.push(
@@ -589,6 +587,5 @@ function renderSandboxPanel({ sandbox, sources, resetFiles, resetting, resetLabe
   }
   if (fixable || sandbox.docker === "error") actions.append(h("button", { type: "button", class: "btn btn-small btn-quiet", onclick: () => sandbox.refresh() }, "Check Docker again"));
   actions.append(reset);
-  parts.push(actions);
-  return [h("div", { class: "sandbox-panel" }, parts)];
+  return [h("div", { class: "sandbox-panel" }, h("div", { class: "model-row" }, simulatedStatus, actions), parts)];
 }
