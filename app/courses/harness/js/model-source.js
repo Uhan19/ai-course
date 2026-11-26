@@ -1,7 +1,7 @@
 export const OLLAMA_HOST = "http://127.0.0.1:11434";
 export const CURL_TIMEOUT_S = 600;
 const EXEC_GRACE_MS = 5_000;
-const PROBE_TIMEOUT_S = 3;
+export const PROBE_TIMEOUT_S = 3;
 const EXTRA_PATH = "/usr/local/bin:/opt/homebrew/bin";
 const STATUS_MARK = "__PRIMER_HTTP_STATUS__";
 const ALLOWED_ENDPOINTS = { "/api/chat": "POST", "/api/tags": "GET", "/api/version": "GET" };

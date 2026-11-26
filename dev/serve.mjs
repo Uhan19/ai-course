@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CURL_TIMEOUT_S, OLLAMA_CLI_COMMAND, curlCommand } from "../app/courses/harness/js/model-source.js";
+import { CURL_TIMEOUT_S, OLLAMA_CLI_COMMAND, PROBE_TIMEOUT_S, curlCommand } from "../app/courses/harness/js/model-source.js";
 
 const ROOT = fileURLToPath(new URL("../app/", import.meta.url));
 const DEV = fileURLToPath(new URL("./", import.meta.url));
@@ -18,7 +18,6 @@ const TYPES = {
 };
 const SKELETON_HEAD =
   '<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body>';
-const PROBE_TIMEOUT_S = 3;
 const ALLOWED_COMMANDS = new Set([
   OLLAMA_CLI_COMMAND,
   ...[CURL_TIMEOUT_S, PROBE_TIMEOUT_S].flatMap((timeout) => [

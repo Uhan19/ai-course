@@ -35,6 +35,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
   let controller = null;
   let disposed = false;
   let turnSource = null;
+  let turnNote = "";
 
   const canSend = () => !busy && sources.source !== "none";
   const syncControls = () => {
@@ -81,7 +82,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
       return { status: 400, body: JSON.stringify({ error: "The request body is not valid JSON." }) };
     }
     const { input, json } = toClaudeRequest(body);
-    xray.note(fallbackNote(sources), { capability: "sample", input, options: { modelTier: CLAUDE_TIER, cache: false, json } }, "Request JSON the page sent to Claude");
+    xray.note(turnNote, { capability: "sample", input, options: { modelTier: CLAUDE_TIER, cache: false, json } }, "Request JSON the page sent to Claude");
     try {
       const value = await ctx.runtime.askClaude(input, { json, signal: controller?.signal, modelTier: CLAUDE_TIER });
       xray.note("Claude answered. The page turns the reply into the same JSON shape Ollama returns, so the harness code doesn't change.", json ? value : { text: value.text }, "Reply JSON from Claude, as the page received it");
@@ -107,6 +108,7 @@ export function renderWorkPane({ lesson, ctx, course }) {
     if (!trimmed || !canSend()) return;
     busy = true;
     turnSource = sources.source;
+    turnNote = fallbackNote(sources);
     controller = new AbortController();
     syncControls();
     input.value = "";
