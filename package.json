@@ -1,0 +1,9 @@
+{
+  "name": "ai-course",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "preview": "node dev/serve.mjs"
+  }
+}
