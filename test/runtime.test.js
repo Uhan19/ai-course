@@ -69,6 +69,23 @@ test("rate_limited cools down live examples", async () => {
   assert.equal(rt.live, "ready");
 });
 
+test("while cooling down, Claude isn't called and the limit's own message is kept", async () => {
+  let calls = 0;
+  const sample = async () => {
+    calls += 1;
+    throw { code: "rate_limited", message: "slow down", reason: "usage_limit" };
+  };
+  const pending = [];
+  const rt = createRuntime(fakeClaude({ sample }), { timers: { setTimeout: (fn) => pending.push(fn), clearTimeout: () => {} } });
+  rt.boot();
+  await flush();
+  await assert.rejects(rt.askClaude("x"), { code: "rate_limited" });
+  const again = await rt.askClaude("x").catch((error) => error);
+  assert.equal(errorCopy(again), "You've reached your Claude usage limit. Claude will answer again when it resets.");
+  assert.equal(calls, 1);
+  assert.equal(pending.length, 1);
+});
+
 function fakeDb() {
   const writes = [];
   let listener = null;
@@ -105,6 +122,17 @@ test("progress store without db works in memory and never saves", () => {
   store.update((p) => markVisited(p, "l1", 1));
   assert.equal(store.mode, "unsaved");
   assert.equal(store.value.lessons.l1.visitedAt, 1);
+});
+
+test("a visit recorded before the store connects is saved once it loads", async () => {
+  const fake = fakeDb();
+  const store = createProgressStore({ timers });
+  store.update((p) => markVisited(p, "l2", 5));
+  store.start(fake.db, "u_123");
+  fake.emit({ version: 1, lessons: { l1: { visitedAt: 1 } } });
+  await flush();
+  assert.equal(fake.writes.length, 1);
+  assert.deepEqual(Object.keys(fake.writes[0].lessons).sort(), ["l1", "l2"]);
 });
 
 test("progress store loads, merges early changes and writes to the private path", async () => {

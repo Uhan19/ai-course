@@ -27,7 +27,7 @@ export default {
   id: "harness",
   title: "Build an agent harness",
   summary:
-    "A language model only turns text into more text. Everything that makes it an agent, like remembering the conversation and running tools, is ordinary code around it. That code is the harness. In this course you read and edit a small harness in TypeScript, run it against a model on your own computer, and watch every message it sends.",
+    "A language model only turns text into more text. Everything that makes it an agent, like remembering the conversation and running tools, is ordinary code around it. That code is the harness. In this course you read and edit a small harness in TypeScript, run it against a model on your own computer or against Claude through your own Claude account, and watch every message it sends.",
   lessons: LESSONS.map((lesson, index) => ({ ...lesson, markdown: LESSON_FILES[index] })),
   comingNext: COMING_NEXT,
   firstComingNumber: LESSONS.length,

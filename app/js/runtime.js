@@ -86,6 +86,9 @@ export function createRuntime(claude, { now = () => Date.now(), timers = globalT
   }
 
   async function askClaude(input, { json = false, signal, modelTier = "quick" } = {}) {
+    if (state.live === "cooling") {
+      throw { code: "rate_limited", reason: state.reason, message: "Claude is cooling down after a limit." };
+    }
     if (state.live !== "ready" || !state.sample) {
       throw { code: "not_ready", message: "Claude isn't available on this page right now." };
     }
@@ -201,7 +204,7 @@ export function createProgressStore({ onChange = () => {}, timers = globalThis }
     if (sameProgress(next, store.value)) return;
     store.value = next;
     changed();
-    if (!ref || store.mode === "unsaved" || store.mode === "readonly") return;
+    if (store.mode === "unsaved" || store.mode === "readonly") return;
     dirty = true;
     if (loaded) flush();
   };
